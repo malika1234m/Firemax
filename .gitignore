@@ -1,0 +1,126 @@
+# ── Secrets & environment ────────────────────────────────
+# NEVER commit real credentials. Keep .env local; commit .env.example only.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.crt
+credentials.json
+secrets.json
+
+# ── Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+*.log
+
+# ── Node / frontend ──────────────────────────────────────
+node_modules/
+dist/
+build/
+.vite/
+.next/
+.cache/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── ML model weights (large; distribute out-of-band) ─────
+*.pt
+*.pth
+*.onnx
+*.weights
+*.h5
+*.tflite
+
+# ── Media captured/generated at runtime ──────────────────
+uploads/
+captures/
+snapshots/
+recordings/
+*.mp4
+*.avi
+*.mov
+
+# ── OS / editor / tooling ────────────────────────────────
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.claude/
+
+# ─────────────────────────────────────────────────────────
+# Coursework, reports and scratch material — not part of
+# the product. Kept locally, excluded from the repo.
+# ─────────────────────────────────────────────────────────
+
+# LaTeX sources and build artifacts
+*.tex
+*.aux
+*.toc
+*.out
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb
+
+# Documents / reports / presentations
+*.pdf
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.xlsx
+
+# Markdown documentation. README.md is the repo's single source of truth;
+# every other write-up (architecture notes, logbooks, academic reports) stays
+# local. The negation is deliberately unanchored so a README.md in any
+# subdirectory — e.g. edge/ — is still tracked.
+*.md
+!README.md
+
+# Named explicitly so they stay ignored even if the *.md rule above is relaxed.
+LOGBOOK*.md
+StudyNotes.*
+FiremexGuide.*
+ILO_Presentation_Prep.*
+Role_QA_Prep.*
+IndustryProject_Proposal*
+
+# Loose design mockups / screenshots dropped in the repo root
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.webp
+
+# Keep the frontend's real image assets tracked
+!frontend/src/assets/**
+!frontend/public/**

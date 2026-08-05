@@ -1,0 +1,11 @@
+# Always needed (cloud client + live-feed relay + frame handling).
+httpx==0.28.1
+websockets==13.1
+opencv-python-headless==4.9.0.80
+numpy==2.4.6
+
+# Needed only for DETECTOR_MODE=yolo (real detection). Mock mode / --selftest
+# do not require these.
+ultralytics==8.2.0
+torch==2.5.1
+torchvision==0.20.1

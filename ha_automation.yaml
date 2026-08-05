@@ -1,0 +1,91 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# FIREMAX → HOME ASSISTANT AUTOMATION
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# HOW TO ADD THIS TO HOME ASSISTANT:
+#   1. Open Home Assistant → http://localhost:8123
+#   2. Go to Settings → Automations & Scenes → Create Automation
+#   3. Click the 3-dot menu (top right) → Edit in YAML
+#   4. Paste the automation block below
+#   5. Save
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+automation:
+  - alias: "Firemax — Fire Detected Response"
+    description: "Triggered when Firemax detects fire or smoke via webhook"
+    mode: single
+
+    trigger:
+      # Webhook trigger — Firemax calls this when fire is detected
+      - platform: webhook
+        webhook_id: firemax_hazard_alert
+        allowed_methods: [POST]
+        local_only: false
+
+    condition:
+      # Only respond to actual hazards
+      - condition: template
+        value_template: "{{ trigger.json.hazard_type in ['fire', 'smoke', 'flame'] }}"
+
+    action:
+      # 1. Persistent notification on HA dashboard
+      - service: persistent_notification.create
+        data:
+          title: >
+            ⚠️ {{ trigger.json.hazard_type | upper }} DETECTED
+          message: >
+            Camera: {{ trigger.json.camera_name }}
+            Confidence: {{ (trigger.json.confidence * 100) | int }}%
+            Time: {{ now().strftime('%H:%M:%S') }}
+          notification_id: firemax_alert
+
+      # 2. Push notification to HA mobile app (if installed)
+      - service: notify.notify
+        data:
+          title: "🔥 FIREMAX ALERT"
+          message: >
+            {{ trigger.json.hazard_type | upper }} at
+            {{ trigger.json.camera_name }}
+            ({{ (trigger.json.confidence * 100) | int }}% confidence)
+
+      # ── Uncomment the actions below when you have real smart devices ──
+
+      # 3. Turn on all lights at full brightness
+      # - service: light.turn_on
+      #   target:
+      #     area_id: all
+      #   data:
+      #     brightness: 255
+
+      # 4. Activate sprinkler system
+      # - service: switch.turn_on
+      #   target:
+      #     entity_id: switch.sprinkler_system
+
+      # 5. Unlock all doors for evacuation
+      # - service: lock.unlock
+      #   target:
+      #     entity_id: lock.front_door
+
+      # 6. Shut off HVAC (stops fire spreading through vents)
+      # - service: switch.turn_off
+      #   target:
+      #     entity_id: switch.hvac_system
+
+      # 7. Trigger alarm siren
+      # - service: siren.turn_on
+      #   target:
+      #     entity_id: siren.alarm
+
+
+  # ─── Clear alert when fire is gone ──────────────────────────────────────
+  - alias: "Firemax — Clear Alert"
+    trigger:
+      - platform: webhook
+        webhook_id: firemax_hazard_clear
+        allowed_methods: [POST]
+    action:
+      - service: persistent_notification.dismiss
+        data:
+          notification_id: firemax_alert

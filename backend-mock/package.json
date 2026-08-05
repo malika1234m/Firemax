@@ -1,0 +1,6 @@
+{
+  "name": "firemax-mock",
+  "type": "module",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": { "ws": "^8.18.0" }
+}

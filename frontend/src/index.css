@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ─────────────────────────────────────────── */
+body {
+  background-color: #06080D;
+  color: #F1F5F9;
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+}
+
+/* ── Dot-grid page background ─────────────────────── */
+.bg-dot-grid {
+  background-image: radial-gradient(rgba(255,255,255,0.028) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ── Glassmorphism card ────────────────────────────── */
+.glass-card {
+  background: rgba(15, 20, 30, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* ── TV scanline overlay (pseudo-element on parent) ── */
+.scanlines {
+  position: relative;
+}
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent          0px,
+    transparent          3px,
+    rgba(0,0,0,0.07)    3px,
+    rgba(0,0,0,0.07)    4px
+  );
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Hazard glowing border ─────────────────────────── */
+.hazard-border {
+  border-color: rgba(239,68,68,0.7) !important;
+  animation: hazard-pulse 2s ease-in-out infinite;
+}
+@keyframes hazard-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.35), 0 0 20px rgba(239,68,68,0.08); }
+  50%     { box-shadow: 0 0 0 6px rgba(239,68,68,0),   0 0 40px rgba(239,68,68,0.20); }
+}
+
+/* ── Live dot blink ────────────────────────────────── */
+.live-dot {
+  animation: live-blink 1.6s ease-in-out infinite;
+}
+@keyframes live-blink {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0.2; }
+}
+
+/* ── Page entrance animations ─────────────────────── */
+.fade-up {
+  animation: fade-in-up 0.45s ease-out both;
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.10s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.20s; }
+.stagger-5 { animation-delay: 0.25s; }
+
+/* ── Alert slide-in ────────────────────────────────── */
+.alert-item {
+  animation: alert-slide 0.32s ease-out both;
+}
+@keyframes alert-slide {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Thin top accent line ──────────────────────────── */
+.top-stripe {
+  height: 2px;
+  background: linear-gradient(to right, transparent 0%, #EF4444 30%, #EF4444 70%, transparent 100%);
+}
+
+/* ── Custom scrollbar ─────────────────────────────── */
+::-webkit-scrollbar          { width: 4px; height: 4px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: rgba(255,255,255,0.10); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+/* ── Input focus ring helper ──────────────────────── */
+.field {
+  @apply w-full bg-slate-900/80 border border-white/[0.07] rounded-lg px-3 py-2.5 text-sm
+         text-white placeholder-slate-600 outline-none transition-all;
+}
+.field:focus {
+  border-color: rgba(194, 65, 12, 0.5);
+  box-shadow: 0 0 0 1px rgba(194, 65, 12, 0.25);
+}
+
+/* ── Select chevron indicator ─────────────────────── */
+/* appearance-none removes the native arrow — without this, a <select>
+   is indistinguishable from a plain input. Applied alongside .field. */
+.select-field {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2394A3B8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  padding-right: 2.25rem;
+  cursor: pointer;
+}
+
+/* Compact variant for small pill-style selects (table rows, badges). */
+.select-field-sm {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2394A3B8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  padding-right: 1.4rem;
+  cursor: pointer;
+}

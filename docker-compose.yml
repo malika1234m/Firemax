@@ -1,0 +1,64 @@
+version: '3.9'
+
+# All containers share this network so they can talk by container name
+networks:
+  firemax-net:
+    driver: bridge
+
+services:
+
+  # ── MongoDB ───────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: mongo
+    restart: unless-stopped
+    networks: [firemax-net]
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+
+  # ── Firemax Backend (FastAPI + YOLOv8) ────────────────────────────────────
+  backend:
+    build: ./backend
+    container_name: firemax-backend
+    restart: unless-stopped
+    networks: [firemax-net]
+    ports:
+      - "8000:8000"
+    env_file: ./backend/.env
+    depends_on:
+      - mongo
+    volumes:
+      - ./backend/models:/app/models   # mount model .pt files here
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017
+      - HA_URL=http://homeassistant:8123
+
+  # ── Firemax Frontend (React → Nginx) ─────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: firemax-frontend
+    restart: unless-stopped
+    networks: [firemax-net]
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+  # ── Home Assistant ────────────────────────────────────────────────────────
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    networks: [firemax-net]
+    ports:
+      - "8123:8123"
+    volumes:
+      - ha_config:/config
+      - /etc/localtime:/etc/localtime:ro
+    privileged: true
+
+volumes:
+  mongo_data:
+  ha_config:
