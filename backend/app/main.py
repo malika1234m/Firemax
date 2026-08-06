@@ -35,14 +35,51 @@ async def _bootstrap_platform_admin():
     logger.info(f"[platform] Bootstrapped platform admin: {email}")
 
 
+def _production_config_problems() -> list[str]:
+    """Configuration that is merely noisy in development but unsafe once the
+    server is reachable from the internet. Returns a human-readable list."""
+    problems = []
+
+    if settings.JWT_SECRET == DEFAULT_JWT_SECRET:
+        problems.append(
+            "JWT_SECRET is the default placeholder — sessions would be signed with a "
+            "publicly-known key. Generate one: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+        )
+    if not settings.COOKIE_SECURE:
+        problems.append(
+            "COOKIE_SECURE is false — the session cookie would be sent over plaintext HTTP."
+        )
+    if not settings.SECRETS_ENCRYPTION_KEY:
+        problems.append(
+            "SECRETS_ENCRYPTION_KEY is unset — per-org Home Assistant tokens cannot be "
+            "encrypted at rest, and saving an HA connection will fail."
+        )
+    if settings.FRONTEND_URL.startswith("http://"):
+        problems.append(
+            f"FRONTEND_URL is plaintext ({settings.FRONTEND_URL}) — the dashboard forces "
+            "wss:// for the live feed, so it must be served over https://."
+        )
+    local = [o for o in settings.CORS_ORIGINS if "localhost" in o or "127.0.0.1" in o]
+    if local:
+        problems.append(f"CORS_ORIGINS still contains development origins: {local}")
+
+    return problems
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.JWT_SECRET == DEFAULT_JWT_SECRET:
-        logger.warning(
-            "JWT_SECRET is still the default placeholder — every login session is "
-            "signed with a publicly-known key. Set a real JWT_SECRET in backend/.env "
-            "before exposing this server beyond localhost."
-        )
+    problems = _production_config_problems()
+    if settings.ENVIRONMENT == "production":
+        # Refuse to start rather than come up subtly insecure.
+        if problems:
+            raise RuntimeError(
+                "Refusing to start with ENVIRONMENT=production and unsafe configuration:\n  - "
+                + "\n  - ".join(problems)
+            )
+        logger.info("[config] Production configuration checks passed.")
+    else:
+        for problem in problems:
+            logger.warning(f"[config] {problem}")
 
     await connect_db()
     await _bootstrap_platform_admin()

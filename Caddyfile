@@ -1,0 +1,32 @@
+# TLS terminator for the FiremeX cloud.
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically, so there
+# is no certbot cron and no manual renewal. It fronts the frontend container,
+# which already proxies /api and /ws on to the backend (frontend/nginx.conf).
+#
+# Why this must exist: frontend/src/hooks/useWebSocket.js switches to wss://
+# for any hostname other than localhost. Served over plain HTTP from a real
+# domain, the live feed fails on every client. TLS is not optional here.
+#
+# FIREMEX_DOMAIN and ACME_EMAIL come from the environment (see .env.production).
+{
+	email {$ACME_EMAIL}
+}
+
+{$FIREMEX_DOMAIN} {
+	encode gzip
+
+	# WebSocket upgrades pass through untouched — Caddy handles them natively.
+	reverse_proxy frontend:80 {
+		header_up X-Real-IP {remote_host}
+	}
+
+	header {
+		# HSTS: once a browser has seen this, it refuses plain HTTP for a year.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

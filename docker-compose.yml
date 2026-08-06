@@ -1,6 +1,14 @@
-version: '3.9'
+# Local / development stack for the FiremeX cloud control plane.
+#
+# For a real deployment, layer the production override on top — it adds TLS,
+# closes the database to the host, and refuses to boot on dev config:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Detection is NOT part of this stack. It runs on the customer's own hardware
+# via the edge agent (see edge/). To run one locally against this cloud for a
+# demo, enable the optional profile:
+#   docker compose --profile edge up
 
-# All containers share this network so they can talk by container name
 networks:
   firemax-net:
     driver: bridge
@@ -13,29 +21,37 @@ services:
     container_name: mongo
     restart: unless-stopped
     networks: [firemax-net]
+    # Authentication is on even locally, so dev and prod agree and there is no
+    # "works on my machine" gap when credentials start being enforced.
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-firemax}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-firemax-local-dev}
     volumes:
       - mongo_data:/data/db
     ports:
-      - "27017:27017"
+      # Bound to loopback: reachable from this machine for mongosh/Compass,
+      # never from the network. The production override drops it entirely.
+      - "127.0.0.1:27017:27017"
 
-  # ── Firemax Backend (FastAPI + YOLOv8) ────────────────────────────────────
+  # ── FiremeX Backend (FastAPI control plane) ───────────────────────────────
   backend:
     build: ./backend
     container_name: firemax-backend
     restart: unless-stopped
     networks: [firemax-net]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file: ./backend/.env
     depends_on:
       - mongo
     volumes:
       - ./backend/models:/app/models   # mount model .pt files here
     environment:
-      - MONGODB_URL=mongodb://mongo:27017
-      - HA_URL=http://homeassistant:8123
+      - MONGODB_URL=mongodb://${MONGO_USER:-firemax}:${MONGO_PASSWORD:-firemax-local-dev}@mongo:27017/?authSource=admin
 
-  # ── Firemax Frontend (React → Nginx) ─────────────────────────────────────
+  # ── FiremeX Frontend (React build → nginx) ────────────────────────────────
+  # nginx.conf proxies /api and /ws through to the backend, so this is the
+  # only service a browser needs to reach.
   frontend:
     build: ./frontend
     container_name: firemax-frontend
@@ -47,6 +63,8 @@ services:
       - backend
 
   # ── Home Assistant ────────────────────────────────────────────────────────
+  # Present for local development and demos. In production this runs on the
+  # CUSTOMER's site, not alongside the cloud.
   homeassistant:
     image: ghcr.io/home-assistant/home-assistant:stable
     container_name: homeassistant
@@ -58,6 +76,32 @@ services:
       - ha_config:/config
       - /etc/localtime:/etc/localtime:ro
     privileged: true
+
+  # ── Edge agent (optional — demo only) ─────────────────────────────────────
+  # Normally this runs on customer hardware. Enable with `--profile edge` to
+  # exercise the full detection path on one machine. AGENT_TOKEN comes from
+  # Sites → Create Site in the app.
+  edge:
+    profiles: [edge]
+    build:
+      context: .
+      dockerfile: edge/Dockerfile
+    container_name: firemax-edge
+    restart: unless-stopped
+    networks: [firemax-net]
+    depends_on:
+      - backend
+    environment:
+      - FIREMEX_CLOUD_URL=http://backend:8000
+      # Left permissive on purpose: Compose interpolates every service even
+      # when this profile is off, so a required-variable guard here would
+      # break plain `docker compose up`. The agent validates it at startup
+      # (AgentConfig.require_token) with a clear message.
+      - AGENT_TOKEN=${AGENT_TOKEN:-}
+      - DETECTOR_MODE=${DETECTOR_MODE:-mock}
+      - MODEL_PATH=/models/fire_model.pt
+    volumes:
+      - ./backend/models:/models:ro
 
 volumes:
   mongo_data:

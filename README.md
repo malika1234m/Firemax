@@ -62,7 +62,34 @@ cp backend/.env.example backend/.env   # fill it in first
 docker compose up --build
 ```
 
-Frontend on `:3000`, backend on `:8000`, Home Assistant on `:8123`, Mongo on `:27017`.
+Frontend on `:3000`, Home Assistant on `:8123`. The backend and MongoDB bind to
+loopback only. Detection is **not** in this stack — it belongs on customer
+hardware. To run an agent locally anyway for a demo:
+
+```bash
+AGENT_TOKEN=<from Sites → Create Site> docker compose --profile edge up
+```
+
+## Deploying to production
+
+```bash
+cp .env.production.example .env.production   # domain, ACME email, Mongo creds
+set -a && . ./.env.production && set +a
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+The overlay adds Caddy on `:80`/`:443` with automatic Let's Encrypt
+certificates, stops publishing MongoDB and the backend to the host, drops Home
+Assistant (it runs on the customer's site), and sets `ENVIRONMENT=production`.
+
+TLS is not optional: the dashboard forces `wss://` for the live feed on any
+non-localhost hostname, so served over plain HTTP the live feed fails. With
+`ENVIRONMENT=production` the backend **refuses to start** if `JWT_SECRET` is
+still the placeholder, `COOKIE_SECURE` is false, `SECRETS_ENCRYPTION_KEY` is
+unset, `FRONTEND_URL` is `http://`, or `CORS_ORIGINS` still names localhost.
+
+Point your domain's DNS at the server *before* first start, or the certificate
+cannot be issued.
 
 ## Model weights
 
@@ -76,6 +103,19 @@ backend/models/fire_model.pt
 and point `MODEL_PATH` at that file. A stock `yolov8n.pt` from Ultralytics works for
 smoke-testing the pipeline. The edge agent can also be run with `DETECTOR_MODE=mock`
 to exercise everything without any weights present.
+
+For customers, publish the weights as a release asset and give them `MODEL_URL`
+plus `MODEL_SHA256` — the agent downloads and verifies them on first run and
+caches the result, so nobody has to copy a `.pt` onto a box by hand.
+
+## Distributing the edge agent
+
+Customers should never build from source. `.github/workflows/publish-agent.yml`
+builds `edge/Dockerfile` from the repo root (it needs both `edge/` and the shared
+`backend/app/detection/` package) for amd64 and arm64, and pushes to
+`ghcr.io/<owner>/firemex-agent`. `edge/docker-compose.yml` pulls that image, so a
+customer install is two files and `docker compose up -d`. See
+[edge/README.md](edge/README.md).
 
 ## Configuration
 

@@ -1,8 +1,12 @@
 # ── Secrets & environment ────────────────────────────────
-# NEVER commit real credentials. Keep .env local; commit .env.example only.
+# NEVER commit real credentials. Keep .env local; commit *.example templates.
 .env
 .env.*
 !.env.example
+!.env.*.example
+# The edge agent's compose file reads edge.env — no leading dot, so the rules
+# above miss it. It holds a site enrollment token.
+edge.env
 *.pem
 *.key
 *.p12

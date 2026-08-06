@@ -20,6 +20,13 @@ class MockDetector:
 
 def build_detector(mode: str):
     if mode == "yolo":
+        # Fetch/verify the weights before loading. HazardDetector silently
+        # falls back to a generic COCO model when the file is missing, which
+        # would leave a site "running" while detecting no fire at all.
+        from config import AgentConfig
+        from model import ensure_model
+        ensure_model(AgentConfig.model_path, AgentConfig.model_url, AgentConfig.model_sha256)
+
         # Imported lazily so mock mode / self-test need none of the ML stack.
         from app.detection.detector import HazardDetector
         logger.info("Detector: YOLO (real model)")

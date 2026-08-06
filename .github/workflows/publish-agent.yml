@@ -1,0 +1,71 @@
+# Builds and publishes the edge-agent image so customers can install it with
+# `docker compose up` instead of cloning this repository.
+#
+# The agent Dockerfile needs the repo root as its build context (it copies
+# both edge/ and the shared backend/app/ detection package), which is exactly
+# why customers must not be asked to build it themselves — this workflow does
+# it once, here.
+#
+# Published to: ghcr.io/<owner>/firemex-agent
+# Nothing extra to configure — GITHUB_TOKEN can push to GHCR.
+
+name: Publish edge agent
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [main]
+    paths:
+      - "edge/**"
+      - "backend/app/detection/**"
+      - ".github/workflows/publish-agent.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/firemex-agent
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Customer hardware is commonly arm64 (Raspberry Pi, Jetson, Apple
+      # silicon dev boxes) as well as amd64, so publish both.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .                     # repo root — the Dockerfile needs it
+          file: edge/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

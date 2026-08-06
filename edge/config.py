@@ -21,6 +21,12 @@ class AgentConfig:
     detector_mode = os.environ.get("DETECTOR_MODE", "yolo").lower()
     # Path to the YOLO model when detector_mode == "yolo".
     model_path = os.environ.get("MODEL_PATH", "models/fire_model.pt")
+    # Weights are distributed out-of-band (too large for the agent image). If
+    # the file is missing and this is set, the agent downloads it on first run
+    # and caches it at model_path — so a customer never has to copy a .pt by
+    # hand. MODEL_SHA256 pins the file; strongly recommended.
+    model_url = os.environ.get("MODEL_URL", "")
+    model_sha256 = os.environ.get("MODEL_SHA256", "")
 
     # For local testing with a laptop webcam: set WEBCAM_CAMERA_ID to an
     # existing camera's id, and the agent will feed that camera from the local

@@ -1,0 +1,38 @@
+# FiremeX Edge Agent — customer install.
+#
+# This is the ONLY file a customer needs. It pulls a prebuilt image, so there
+# is no source code to clone and nothing to build on site.
+#
+#   1. Save this file and edge.env alongside it.
+#   2. Fill in edge.env (enrollment token from Sites → Create Site).
+#   3. docker compose up -d
+#
+# Check it worked:
+#   docker compose run --rm agent python agent.py --selftest
+#
+# The agent only makes OUTBOUND connections to the FiremeX cloud. No inbound
+# firewall rules or port forwards are required.
+
+services:
+  agent:
+    image: ghcr.io/firemex/firemex-agent:latest
+    container_name: firemex-agent
+    restart: unless-stopped
+    env_file: ./edge.env
+
+    # The agent must reach the cameras on the local network. host networking
+    # is the simplest way on Linux; on Docker Desktop (macOS/Windows) remove
+    # this line — the default bridge already routes to the LAN.
+    network_mode: host
+
+    volumes:
+      # Caches the downloaded detection model across restarts, so the agent
+      # doesn't re-fetch it every time the container is recreated.
+      - agent_models:/app/models
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  agent_models:

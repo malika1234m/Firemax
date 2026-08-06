@@ -1,41 +1,102 @@
 # FiremeX Edge Agent
 
-Runs on a customer's own network (a small box/VM on the same LAN as the
-cameras). It reads local RTSP/IP camera streams, runs fire/hazard detection
-**locally**, and reports events + health to the FiremeX cloud over outbound
-HTTPS. Camera video never leaves the site — only detections and small alert
-thumbnails are sent up.
+The agent is a small program that runs **on a computer at your site**, on the
+same network as your cameras. It watches the camera streams, decides locally
+whether it is looking at fire or smoke, and tells the FiremeX cloud only when
+something happens.
 
-## How it fits
+Think of it as a guard watching the monitors inside the building, who phones
+head office when there's a problem — rather than piping every camera to head
+office around the clock.
+
+## Why it works this way
+
+- **Your video stays on your network.** Only detections and a small thumbnail
+  are uploaded. Full video goes up only while someone has that camera's live
+  feed open on screen, and stops the moment they close it.
+- **No inbound firewall rules.** The agent always dials *out* to FiremeX. The
+  cloud never connects into your network, so nothing has to be port-forwarded.
+- **Detection keeps working if the internet drops.** It runs locally; events
+  queue and are delivered when the connection returns.
+
 ```
- Cameras (LAN)  ──►  Edge Agent  ──(outbound HTTPS)──►  FiremeX Cloud
- Home Assistant ◄──   (this app)                         (dashboards, alerts)
+ YOUR SITE                                        FIREMEX CLOUD
+ ┌──────────────────────────────────┐            ┌──────────────────┐
+ │ Cameras ──RTSP──► Edge Agent ────┼──outbound──► dashboards       │
+ │                      │           │   HTTPS    │ alerts, history  │
+ │ Home Assistant ◄─────┘           │            └──────────────────┘
+ └──────────────────────────────────┘
 ```
-The cloud never connects *into* the customer network, so no inbound firewall
-ports are required.
 
-## Setup
-1. In FiremeX (as an admin): **Sites → Create Site** → copy the enrollment token.
-2. Copy `.env.example` to `.env` and set `AGENT_TOKEN`, `FIREMEX_CLOUD_URL`.
-3. Run it:
-   ```bash
-   # quick connectivity check (no cameras/ML needed)
-   AGENT_TOKEN=... FIREMEX_CLOUD_URL=http://localhost:8000 python agent.py --selftest
+## What you need
 
-   # normal run
-   python agent.py
-   # or:  docker build -f edge/Dockerfile -t firemex-agent . && docker run --env-file edge/.env firemex-agent
-   ```
-4. The site flips to **Online** in the FiremeX Sites page once heartbeats arrive.
+A machine that stays on, on the same LAN as the cameras — a mini PC, a NUC, a
+Raspberry Pi 4/5, or a VM on an existing server — with Docker installed and a
+network route to the cameras. For real detection, 4 GB RAM is a sensible floor.
+
+## Install
+
+**1. Create a Site in FiremeX.** Sign in as an admin → **Sites → Create Site**.
+Copy the enrollment token — it is shown **once**. (Lost it? Use *Rotate token*
+on that site.)
+
+**2. Put two files on the machine:** the `docker-compose.yml` from this
+directory, and an `edge.env` next to it based on `.env.example`:
+
+```ini
+FIREMEX_CLOUD_URL=https://your-firemex-domain
+AGENT_TOKEN=<the token you just copied>
+DETECTOR_MODE=yolo
+MODEL_PATH=/app/models/fire_model.pt
+MODEL_URL=<link FiremeX gave you for the weights>
+MODEL_SHA256=<checksum FiremeX gave you>
+```
+
+You do **not** need to clone this repository — the Compose file pulls a
+prebuilt image.
+
+**3. Check the connection before involving cameras:**
+
+```bash
+docker compose run --rm agent python agent.py --selftest
+```
+
+This pulls the site config, sends a heartbeat, and posts one synthetic event.
+It needs no cameras and no detection model, so it isolates "is the token and
+URL right, and is anything blocking the connection" from everything else.
+
+**4. Start it:**
+
+```bash
+docker compose up -d
+```
+
+The site flips to **Online** in the FiremeX Sites page within ~10 seconds.
+Cameras added in the app are picked up on the agent's next config poll — no
+restart needed.
 
 ## Modes
-- `DETECTOR_MODE=yolo` — real detection using the shared FiremeX model (needs
-  `torch`/`ultralytics` and the `.pt` model on the box).
-- `DETECTOR_MODE=mock` — no ML; runs the loops without detecting. Good for
-  first-time wiring and low-power hardware during setup.
 
-## What it sends
-- `GET /agent/config` — pulls cameras, detection tuning, and the site's Home
+| `DETECTOR_MODE` | Behaviour |
+|---|---|
+| `yolo` | Real detection. Downloads the weights on first run when `MODEL_URL` is set, verifies `MODEL_SHA256`, and caches them. |
+| `mock` | No ML at all — every loop runs but nothing is ever reported as a hazard. Use while first wiring up a site, or on low-power hardware during setup. |
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+|---|---|
+| Site never goes Online | Wrong `AGENT_TOKEN` or `FIREMEX_CLOUD_URL` — run `--selftest` |
+| `Invalid agent token` | Token was rotated in the app; paste the new one |
+| `Detection model not found` | `MODEL_URL` unset and no weights on the box — set it, or use `DETECTOR_MODE=mock` |
+| Camera shows "No Signal" | The agent can't reach that RTSP URL; test it from this machine first |
+
+Logs: `docker compose logs -f agent`
+
+## What the agent sends
+
+- `GET /agent/config` — its camera list, detection tuning, and the site's Home
   Assistant connection.
-- `POST /agent/heartbeat` — liveness + per-camera FPS/latency/online.
-- `POST /agent/events` — hazards detected locally (with a thumbnail).
+- `POST /agent/heartbeat` — liveness plus per-camera FPS, latency, online state.
+- `POST /agent/events` — hazards detected locally, with a thumbnail.
+- `WS /agent/ws` — live frames, only while an operator is watching that feed.

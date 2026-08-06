@@ -2,6 +2,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    # "development" | "production". Setting this to "production" turns the
+    # startup warnings below into hard failures — the server refuses to boot
+    # with placeholder secrets or plaintext URLs (see main.py). Deliberate:
+    # a fire-detection system silently running on a publicly-known JWT key is
+    # worse than one that won't start.
+    ENVIRONMENT: str = "development"
+
     MONGODB_URL: str = "mongodb://localhost:27017"
     DB_NAME: str = "firemax"
 

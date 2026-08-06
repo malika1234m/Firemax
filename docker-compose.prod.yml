@@ -1,0 +1,62 @@
+# Production overlay. Apply on top of the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# What this changes:
+#   • Adds Caddy on :80/:443 with automatic Let's Encrypt certificates.
+#   • Stops publishing MongoDB and the backend to the host — only Caddy is
+#     reachable from outside; everything else talks over the internal network.
+#   • Drops Home Assistant, which belongs on the CUSTOMER's site, not here.
+#   • Sets ENVIRONMENT=production, which makes the backend refuse to start on
+#     placeholder secrets or http:// URLs (see backend/app/main.py).
+#
+# Required in the environment (see .env.production.example):
+#   FIREMEX_DOMAIN, ACME_EMAIL, MONGO_USER, MONGO_PASSWORD
+
+services:
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: firemax-caddy
+    restart: unless-stopped
+    networks: [firemax-net]
+    ports:
+      - "80:80"      # ACME HTTP-01 challenge + redirect to HTTPS
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      - FIREMEX_DOMAIN=${FIREMEX_DOMAIN:?set FIREMEX_DOMAIN to your public hostname}
+      - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL for Let's Encrypt notifications}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificates — losing this re-issues them
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+  mongo:
+    # No host port at all in production; only containers on firemax-net reach it.
+    ports: !reset []
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:?set MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:?set MONGO_PASSWORD}
+
+  backend:
+    ports: !reset []
+    environment:
+      - MONGODB_URL=mongodb://${MONGO_USER:?}:${MONGO_PASSWORD:?}@mongo:27017/?authSource=admin
+      - ENVIRONMENT=production
+      - COOKIE_SECURE=true
+      - CORS_ORIGINS=["https://${FIREMEX_DOMAIN:?}"]
+      - FRONTEND_URL=https://${FIREMEX_DOMAIN:?}
+
+  frontend:
+    # Reached only through Caddy now.
+    ports: !reset []
+
+  # Home Assistant runs on the customer's premises, never in the vendor cloud.
+  homeassistant:
+    profiles: [never]
+
+volumes:
+  caddy_data:
+  caddy_config:
