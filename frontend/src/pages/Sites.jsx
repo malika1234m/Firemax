@@ -4,6 +4,7 @@ import { apiFetch, apiJson } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import { useConfirm } from '../context/ConfirmContext'
 import PageHeader from '../components/PageHeader'
+import SetupStepper from '../components/SetupStepper'
 
 function timeAgo(iso) {
   if (!iso) return 'never'
@@ -66,6 +67,9 @@ export default function Sites() {
   return (
     <div className="max-w-5xl space-y-6 fade-up">
       <PageHeader title="Sites" subtitle="Edge agents that run detection on your own network" />
+
+      {/* Removes itself once setup is done — see SetupStepper. */}
+      <SetupStepper />
 
       <p className="text-[12px] text-slate-500 -mt-2 max-w-2xl">
         Each site runs a FiremeX <span className="text-slate-300">edge agent</span> on your local network — it reads your cameras,
