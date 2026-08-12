@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Camera, Server, Terminal, Home, Bell, Check, Copy, ArrowRight,
-  ChevronDown, CheckCircle2, ShieldCheck,
+  ChevronDown, CheckCircle2, ShieldCheck, Download,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import { useSetupProgress } from '../hooks/useSetupProgress'
@@ -24,13 +24,43 @@ function CopyButton({ text }) {
   )
 }
 
-function Snippet({ label, code }) {
+/** Saves text as a real file. The agent install depends on two files existing
+ *  with EXACT names — a copy button leaves the customer to create them by hand,
+ *  which is where a non-technical installer gets stuck (and "docker-compose.yml.txt"
+ *  fails in a way that looks like a Docker problem, not a naming one). */
+function DownloadButton({ text, filename }) {
+  const save = () => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+  return (
+    <button onClick={save}
+            className="flex items-center gap-1.5 text-[11px] text-slate-400 border border-white/[0.1] rounded-lg px-2.5 py-1.5 bg-panel/80 backdrop-blur hover:bg-white/[0.06] transition-colors shrink-0">
+      <Download size={12} /> Download
+    </button>
+  )
+}
+
+function Snippet({ label, code, filename }) {
   return (
     <div className="space-y-1.5">
-      {label && <p className="text-[11px] text-slate-500 font-medium">{label}</p>}
+      {label && (
+        <p className="text-[11px] text-slate-500 font-medium">
+          {label}{filename && <span className="text-slate-600"> — save as <code className="font-mono text-slate-400">{filename}</code></span>}
+        </p>
+      )}
       <div className="relative">
-        <pre className="font-mono text-[11.5px] leading-relaxed text-slate-300 bg-black/40 border border-white/[0.08] rounded-lg p-3 pr-24 overflow-x-auto">{code}</pre>
-        <div className="absolute top-2 right-2"><CopyButton text={code} /></div>
+        <pre className={`font-mono text-[11.5px] leading-relaxed text-slate-300 bg-black/40 border border-white/[0.08] rounded-lg p-3 overflow-x-auto ${filename ? 'pr-[210px]' : 'pr-24'}`}>{code}</pre>
+        <div className="absolute top-2 right-2 flex items-center gap-1.5">
+          {filename && <DownloadButton text={code} filename={filename} />}
+          <CopyButton text={code} />
+        </div>
       </div>
     </div>
   )
@@ -96,10 +126,18 @@ export default function GetStarted() {
     open: openId === id, onToggle: () => toggle(id),
   })
 
+  // MODEL_URL / MODEL_SHA256 are NOT optional decoration: with DETECTOR_MODE=yolo
+  // and an empty models volume, the agent exits at startup rather than run
+  // blind (see edge/model.py). Omitting them here handed customers a
+  // crash-looping container. They must stay in step with the published release
+  // — if the weights are ever republished, update these and edge/.env.example
+  // together.
   const envFile = `FIREMEX_CLOUD_URL=${CLOUD_URL}
 AGENT_TOKEN=<paste your site token here>
 DETECTOR_MODE=yolo
-MODEL_PATH=/app/models/fire_model.pt`
+MODEL_PATH=/app/models/fire_model.pt
+MODEL_URL=https://github.com/malika1234m/Firemax/releases/download/v0.1.0/fire_model.pt
+MODEL_SHA256=2ab009042ba04827ee1cd1ccb0648832577677334c5fe4927e7c7950f7406c89`
 
   const composeFile = `services:
   agent:
@@ -166,10 +204,17 @@ volumes:
         <Step {...stepProps('agent', 2)} icon={Terminal}
               title="3. Run the edge agent"
               summary="Two files and one command on a computer at your site">
-          <p>On any always-on computer at your site with Docker installed, save these two files in one folder.</p>
-          <Snippet label="edge.env" code={envFile} />
-          <Snippet label="docker-compose.yml" code={composeFile} />
-          <Snippet label="Check the connection, then start it" code={`docker compose run --rm agent python agent.py --selftest\ndocker compose up -d`} />
+          <p>
+            On any always-on computer at your site with Docker installed, download both files into
+            one folder. Nothing else needs installing — no Python, no code to clone.
+          </p>
+          <Snippet label="1. Configuration" filename="edge.env" code={envFile} />
+          <p className="text-slate-600 -mt-1">
+            Replace <code className="font-mono text-slate-400">&lt;paste your site token here&gt;</code> with
+            the enrollment token from step 2, then save.
+          </p>
+          <Snippet label="2. Docker setup" filename="docker-compose.yml" code={composeFile} />
+          <Snippet label="3. In that folder, check the connection then start it" code={`docker compose run --rm agent python agent.py --selftest\ndocker compose up -d`} />
           <p className="text-slate-600">
             The self-test needs no cameras — it only proves the token and address are right, so a
             connection problem never looks like a camera problem. Once started, this page ticks over
