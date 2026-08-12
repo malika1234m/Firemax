@@ -38,24 +38,33 @@ network route to the cameras. For real detection, 4 GB RAM is a sensible floor.
 
 **1. Create a Site in FiremeX.** Sign in as an admin → **Sites → Create Site**.
 Copy the enrollment token — it is shown **once**. (Lost it? Use *Rotate token*
-on that site.)
+on that site. Rotating kills the old token immediately.)
 
-**2. Put two files on the machine:** the `docker-compose.yml` from this
+**2. Add at least one camera.** **Cameras → Add Camera.** The agent only
+watches cameras registered in the app, and it reads the list once at startup —
+add cameras before starting it, or restart the agent afterwards.
+
+`stream_url` is normally `rtsp://…`, but OpenCV opens **any** URL or file path
+it understands. For a demo on a machine with no CCTV, point it at an ordinary
+http(s) `.mp4` and the agent treats it as a camera — it loops when the file
+ends. That needs no hardware and, unlike a webcam, works inside Docker.
+
+**3. Put two files on the machine:** the `docker-compose.yml` from this
 directory, and an `edge.env` next to it based on `.env.example`:
 
 ```ini
-FIREMEX_CLOUD_URL=https://your-firemex-domain
+FIREMEX_CLOUD_URL=https://backend-production-0c43.up.railway.app
 AGENT_TOKEN=<the token you just copied>
 DETECTOR_MODE=yolo
 MODEL_PATH=/app/models/fire_model.pt
-MODEL_URL=<link FiremeX gave you for the weights>
-MODEL_SHA256=<checksum FiremeX gave you>
+MODEL_URL=https://github.com/malika1234m/Firemax/releases/download/v0.1.0/fire_model.pt
+MODEL_SHA256=2ab009042ba04827ee1cd1ccb0648832577677334c5fe4927e7c7950f7406c89
 ```
 
 You do **not** need to clone this repository — the Compose file pulls a
 prebuilt image.
 
-**3. Check the connection before involving cameras:**
+**4. Check the connection before involving cameras:**
 
 ```bash
 docker compose run --rm agent python agent.py --selftest
@@ -65,7 +74,7 @@ This pulls the site config, sends a heartbeat, and posts one synthetic event.
 It needs no cameras and no detection model, so it isolates "is the token and
 URL right, and is anything blocking the connection" from everything else.
 
-**4. Start it:**
+**5. Start it:**
 
 ```bash
 docker compose up -d
