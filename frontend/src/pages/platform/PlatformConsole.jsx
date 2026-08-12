@@ -140,22 +140,89 @@ function OverviewSection({ overview, onRefresh }) {
 
 /* ── Tenants ──────────────────────────────────────────── */
 function TenantsSection() {
-  const [data, setData] = useState(null)
-  useEffect(() => { apiFetch('/platform/tenants').then(r => r.json()).then(setData).catch(() => {}) }, [])
+  const [data, setData]   = useState(null)
+  const [plans, setPlans] = useState([])
+
+  const load = useCallback(() => {
+    apiFetch('/platform/tenants').then(r => r.json()).then(setData).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    load()
+    apiFetch('/platform/plans').then(r => r.json()).then(d => setPlans(d.plans || [])).catch(() => {})
+  }, [load])
+
   if (!data) return <Loading />
   return (
-    <Table head={['Company', 'Plan', 'Users', 'Cameras', 'Alerts 24h', 'Status']}>
-      {data.tenants.map(t => (
-        <tr key={t.org_id} className="border-b border-white/[0.04] last:border-0 text-[13px]">
-          <td className="px-4 py-3 text-slate-200 font-medium">{t.name}</td>
-          <td className="px-4 py-3 text-slate-400 capitalize">{t.plan} <span className="text-slate-600">· {t.subscription_status}</span></td>
-          <td className="px-4 py-3 text-slate-400">{t.users}</td>
-          <td className="px-4 py-3"><span className={t.cameras_online < t.cameras_expected ? 'text-hazard' : 'text-slate-300'}>{t.cameras_online}/{t.cameras_expected}</span> <span className="text-slate-600">online</span></td>
-          <td className="px-4 py-3 text-slate-400">{t.alerts_24h}</td>
-          <td className="px-4 py-3">{t.degraded ? <Badge tone="hazard" icon={AlertTriangle}>Degraded</Badge> : <Badge tone="safe" icon={CheckCircle2}>Healthy</Badge>}</td>
-        </tr>
+    <div className="space-y-3">
+      <p className="text-[12px] text-slate-500">
+        Payment collection isn't live yet, so plans are set here by hand. A change applies immediately
+        and is recorded against your account.
+      </p>
+      <Table head={['Company', 'Plan', 'Users', 'Cameras', 'Alerts 24h', 'Status']}>
+        {data.tenants.map(t => (
+          <tr key={t.org_id} className="border-b border-white/[0.04] last:border-0 text-[13px]">
+            <td className="px-4 py-3 text-slate-200 font-medium">{t.name}</td>
+            <td className="px-4 py-3"><PlanPicker tenant={t} plans={plans} onChanged={load} /></td>
+            <td className="px-4 py-3 text-slate-400">{t.users}</td>
+            <td className="px-4 py-3"><span className={t.cameras_online < t.cameras_expected ? 'text-hazard' : 'text-slate-300'}>{t.cameras_online}/{t.cameras_expected}</span> <span className="text-slate-600">online</span></td>
+            <td className="px-4 py-3 text-slate-400">{t.alerts_24h}</td>
+            <td className="px-4 py-3">{t.degraded ? <Badge tone="hazard" icon={AlertTriangle}>Degraded</Badge> : <Badge tone="safe" icon={CheckCircle2}>Healthy</Badge>}</td>
+          </tr>
+        ))}
+      </Table>
+    </div>
+  )
+}
+
+function PlanPicker({ tenant, plans, onChanged }) {
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved]   = useState(false)
+  const [error, setError]   = useState('')
+  const [warnings, setWarnings] = useState([])
+
+  const change = async (plan) => {
+    if (plan === tenant.plan) return
+    setSaving(true); setError(''); setWarnings([])
+    try {
+      const res = await apiJson(`/platform/tenants/${tenant.org_id}/plan`, {
+        method: 'PATCH', body: JSON.stringify({ plan }),
+      })
+      // Surfaced rather than blocked: a downgrade below current usage is a
+      // legitimate action, but staff should see the consequence.
+      setWarnings(res.warnings || [])
+      setSaved(true); setTimeout(() => setSaved(false), 2500)
+      onChanged()
+    } catch (err) {
+      setError(err.message || 'Could not change plan')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-1.5 min-w-[190px]">
+      <div className="flex items-center gap-2">
+        <select
+          value={tenant.plan}
+          disabled={saving || plans.length === 0}
+          onChange={e => change(e.target.value)}
+          className="bg-black/40 border border-white/[0.1] rounded-lg px-2 py-1.5 text-[12px] text-slate-200 focus:outline-none focus:border-brand/50 disabled:opacity-50"
+        >
+          {plans.length === 0 && <option value={tenant.plan}>{tenant.plan}</option>}
+          {plans.map(p => (
+            <option key={p.plan_id} value={p.plan_id}>
+              {p.label}{p.price_usd ? ` — $${p.price_usd}/mo` : ' — free'}
+            </option>
+          ))}
+        </select>
+        {saving && <span className="text-[11px] text-slate-500">saving…</span>}
+        {saved  && <span className="flex items-center gap-1 text-[11px] text-safe"><CheckCircle2 size={12} /> saved</span>}
+      </div>
+      <p className="text-[10.5px] text-slate-600">{tenant.subscription_status}</p>
+      {error && <p className="text-[10.5px] text-hazard">{error}</p>}
+      {warnings.map((w, i) => (
+        <p key={i} className="text-[10.5px] text-hazard leading-snug max-w-[260px]">{w}</p>
       ))}
-    </Table>
+    </div>
   )
 }
 

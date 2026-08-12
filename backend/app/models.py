@@ -207,6 +207,23 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+class TenantPlanUpdate(BaseModel):
+    """Manual plan change applied by FiremeX staff from the platform console.
+
+    This exists because billing is not live yet: without it, every tenant is
+    stuck on whatever they signed up with and paid features cannot be granted
+    at all. Once Stripe is the source of truth this stays useful for comps,
+    trials extensions and support fixes — but a manual change is recorded as
+    such (see plan_source) so a later webhook can be reconciled against it
+    rather than silently overwriting a decision a human made.
+    """
+    plan: str
+    # Defaults to "active" for a paid plan and "trialing" for the free one;
+    # override only when you specifically need a different state.
+    subscription_status: Optional[str] = None
+    note: Optional[str] = Field(None, max_length=280)
+
+
 class PlanUpdate(BaseModel):
     label: Optional[str] = Field(None, min_length=1)
     price_usd: Optional[int] = Field(None, ge=0, le=100000)

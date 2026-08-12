@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.config import settings
 from app.database import get_db
-from app.models import LoginRequest, PlanUpdate, ComplaintUpdate
+from app.models import LoginRequest, PlanUpdate, ComplaintUpdate, TenantPlanUpdate
 from app.security import (
     verify_password, create_platform_token, require_platform_admin,
     PLATFORM_COOKIE_NAME,
@@ -165,6 +165,89 @@ async def platform_tenants(_admin: dict = Depends(require_platform_admin)):
         })
 
     return {"tenants": tenants, "degraded_count": sum(1 for t in tenants if t["degraded"])}
+
+
+VALID_SUBSCRIPTION_STATUSES = {"trialing", "active", "past_due", "canceled", "incomplete"}
+
+
+@router.patch("/tenants/{org_id}/plan")
+async def platform_set_tenant_plan(
+    org_id: str,
+    body: TenantPlanUpdate,
+    admin: dict = Depends(require_platform_admin),
+):
+    """Move a tenant onto a different plan by hand.
+
+    Payment collection isn't wired up yet, so this is currently the ONLY way a
+    customer can get off the trial. It writes the same two fields a Stripe
+    webhook would (plan, subscription_status) plus an audit trail marking the
+    change as manual, so the two sources of truth stay distinguishable.
+
+    Downgrades are allowed even when the tenant is already over the new plan's
+    ceiling: plan limits are enforced when creating cameras/users, not
+    retroactively, and silently deleting a customer's cameras to satisfy a
+    billing change would be far worse than letting them sit over quota. The
+    response reports any breach so the console can surface it.
+    """
+    db = get_db()
+
+    plans = {p["plan_id"]: p for p in await list_plans()}
+    if body.plan not in plans:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown plan '{body.plan}' — valid plans: {sorted(plans)}",
+        )
+
+    status = body.subscription_status
+    if status is None:
+        status = "trialing" if plans[body.plan].get("price_usd", 0) == 0 else "active"
+    if status not in VALID_SUBSCRIPTION_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid subscription status — valid: {sorted(VALID_SUBSCRIPTION_STATUSES)}",
+        )
+
+    org = await db.organizations.find_one({"org_id": org_id})
+    if not org:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    updates = {
+        "plan": body.plan,
+        "subscription_status": status,
+        # Audit trail. Kept deliberately explicit so a future Stripe webhook can
+        # tell "a human set this" apart from "the payment provider set this".
+        "plan_source": "manual",
+        "plan_updated_by": admin.get("email"),
+        "plan_updated_at": datetime.utcnow(),
+        "plan_update_note": body.note or "",
+    }
+    await db.organizations.update_one({"org_id": org_id}, {"$set": updates})
+
+    # Report (don't enforce) an over-quota downgrade.
+    cameras = await db.cameras.count_documents({"org_id": org_id})
+    users = await db.users.count_documents({"org_id": org_id})
+    limits = plans[body.plan]
+    warnings = []
+    if cameras > limits["max_cameras"]:
+        warnings.append(
+            f"{cameras} cameras exceeds the {limits['label']} limit of {limits['max_cameras']} — "
+            "existing cameras keep running, but no new ones can be added."
+        )
+    if users > limits["max_users"]:
+        warnings.append(
+            f"{users} users exceeds the {limits['label']} limit of {limits['max_users']} — "
+            "existing users keep access, but no new ones can be invited."
+        )
+
+    return {
+        "org_id": org_id,
+        "name": org["name"],
+        "plan": body.plan,
+        "subscription_status": status,
+        "plan_source": "manual",
+        "changed_by": admin.get("email"),
+        "warnings": warnings,
+    }
 
 
 # ── Plans (view + edit prices/limits/features) ──────────────────────────────
