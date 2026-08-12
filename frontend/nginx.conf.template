@@ -13,6 +13,15 @@
 # host-only. Serve the SPA and the API from different origins and login breaks:
 # the browser will not attach the cookie to the API call.
 
+# Standard WebSocket upgrade map. "Connection: upgrade" must only be sent for
+# requests that actually asked to upgrade — hardcoding it would break keepalive
+# on every ordinary request. Valid here because conf.d files are included in
+# the http context.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen ${PORT};
     server_name _;
@@ -26,6 +35,13 @@ server {
     # strips the /api prefix — the same rewrite Vite does in dev.
     location /api/ {
         proxy_pass ${BACKEND_ORIGIN}/;
+
+        # The edge agent's live-feed relay dials /agent/ws through this same
+        # prefix, so /api must be able to upgrade. The map above keeps ordinary
+        # requests on keepalive.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
 
         # Host must name the UPSTREAM, not this server. A PaaS routes by Host,
         # so forwarding the browser's Host would land the request on the wrong

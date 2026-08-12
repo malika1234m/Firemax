@@ -19,6 +19,20 @@ class Settings(BaseSettings):
     CONFIDENCE_THRESHOLD: float = 0.50
     PROCESS_FPS: int = 5  # frames per second sent to ML (not display FPS)
 
+    # ── Edge-agent install details ──────────────────────────────────────────
+    # Served to admins by GET /sites/agent-install and used to generate a
+    # ready-to-run edge.env + docker-compose.yml in the Get Started guide.
+    #
+    # These live here rather than being hardcoded in the frontend so that
+    # republishing the weights is a single config change. Get it wrong in two
+    # places and customers silently pull an old model — which in this product
+    # means detecting with a model you thought you had replaced.
+    AGENT_IMAGE: str = "ghcr.io/malika1234m/firemex-agent:latest"
+    AGENT_MODEL_URL: str = ""
+    # Strongly recommended. The agent refuses to start on a checksum mismatch;
+    # leaving this blank means a corrupted or swapped download is used as-is.
+    AGENT_MODEL_SHA256: str = ""
+
     # Home Assistant integration
     HA_URL:        str = ""   # e.g. http://homeassistant:8123
     HA_TOKEN:      str = ""   # long-lived access token from HA profile

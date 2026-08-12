@@ -1,9 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException
+from app.config import settings
 from app.models import Site, SiteCreate, SitePublic, UserPublic
 from app.database import get_db
 from app.security import require_admin, generate_agent_token, hash_agent_token
 
 router = APIRouter(prefix="/sites", tags=["sites"])
+
+
+@router.get("/agent-install")
+async def agent_install_config(_admin: UserPublic = Depends(require_admin)):
+    """What an admin needs to stand up an edge agent: which image to run and
+    which weights it should fetch.
+
+    Single source of truth on purpose. These values previously appeared in the
+    dashboard's setup guide AND in edge/.env.example, so republishing the model
+    meant remembering both — and forgetting one leaves customers pulling stale
+    weights with nothing failing to warn them.
+
+    `model_configured` lets the UI say "ask FiremeX for the weights URL" instead
+    of silently emitting a config that cannot start.
+    """
+    return {
+        "agent_image": settings.AGENT_IMAGE,
+        "model_url": settings.AGENT_MODEL_URL,
+        "model_sha256": settings.AGENT_MODEL_SHA256,
+        "model_configured": bool(settings.AGENT_MODEL_URL),
+    }
 
 
 @router.get("/", response_model=list[SitePublic])

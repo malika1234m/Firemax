@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
 import {
   Camera, Server, Terminal, Home, Bell, Check, Copy, ArrowRight,
-  ChevronDown, CheckCircle2, ShieldCheck, Download,
+  ChevronDown, CheckCircle2, ShieldCheck, Download, AlertTriangle,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import { useSetupProgress } from '../hooks/useSetupProgress'
@@ -115,6 +116,18 @@ export default function GetStarted() {
   // `undefined` means "follow progress"; once the user clicks a row we respect
   // their choice instead of yanking the panel around under them on each poll.
   const [override, setOverride] = useState(undefined)
+
+  // Which agent image to run and which weights it should fetch — owned by the
+  // backend, not duplicated here. Null while loading; the snippets fall back to
+  // sensible defaults so the page never renders half-built config.
+  const [install, setInstall] = useState(null)
+  useEffect(() => {
+    apiFetch('/sites/agent-install')
+      .then(r => (r.ok ? r.json() : null))
+      .then(setInstall)
+      .catch(() => {})
+  }, [])
+
   const autoId = complete ? null : steps[currentIndex]?.id
   const openId = override === undefined ? autoId : override
   const toggle = (id) => setOverride(openId === id ? null : id)
@@ -126,22 +139,23 @@ export default function GetStarted() {
     open: openId === id, onToggle: () => toggle(id),
   })
 
-  // MODEL_URL / MODEL_SHA256 are NOT optional decoration: with DETECTOR_MODE=yolo
-  // and an empty models volume, the agent exits at startup rather than run
-  // blind (see edge/model.py). Omitting them here handed customers a
-  // crash-looping container. They must stay in step with the published release
-  // — if the weights are ever republished, update these and edge/.env.example
-  // together.
-  const envFile = `FIREMEX_CLOUD_URL=${CLOUD_URL}
-AGENT_TOKEN=<paste your site token here>
-DETECTOR_MODE=yolo
-MODEL_PATH=/app/models/fire_model.pt
-MODEL_URL=https://github.com/malika1234m/Firemax/releases/download/v0.1.0/fire_model.pt
-MODEL_SHA256=2ab009042ba04827ee1cd1ccb0648832577677334c5fe4927e7c7950f7406c89`
+  // Image and weights come from backend config (GET /sites/agent-install) so
+  // republishing the model is one change in one place. MODEL_URL / MODEL_SHA256
+  // are not decoration: with DETECTOR_MODE=yolo and an empty models volume the
+  // agent exits at startup rather than run blind (edge/model.py), so a config
+  // generated without them hands the customer a crash-looping container.
+  const envFile = [
+    `FIREMEX_CLOUD_URL=${CLOUD_URL}`,
+    `AGENT_TOKEN=<paste your site token here>`,
+    `DETECTOR_MODE=yolo`,
+    `MODEL_PATH=/app/models/fire_model.pt`,
+    ...(install?.model_url    ? [`MODEL_URL=${install.model_url}`]       : []),
+    ...(install?.model_sha256 ? [`MODEL_SHA256=${install.model_sha256}`] : []),
+  ].join('\n')
 
   const composeFile = `services:
   agent:
-    image: ghcr.io/malika1234m/firemex-agent:latest
+    image: ${install?.agent_image || 'ghcr.io/malika1234m/firemex-agent:latest'}
     restart: unless-stopped
     env_file: ./edge.env
     volumes: [agent_models:/app/models]
@@ -208,6 +222,19 @@ volumes:
             On any always-on computer at your site with Docker installed, download both files into
             one folder. Nothing else needs installing — no Python, no code to clone.
           </p>
+          {install && !install.model_configured && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-hazard/30 bg-hazard/[0.06] p-3">
+              <AlertTriangle size={14} className="text-hazard shrink-0 mt-0.5" />
+              <p className="text-[11.5px] text-slate-400 leading-relaxed">
+                No detection weights are published for this deployment yet, so the file below has no{' '}
+                <code className="font-mono text-slate-300">MODEL_URL</code> and the agent will stop at
+                startup rather than run without a model. Set{' '}
+                <code className="font-mono text-slate-300">AGENT_MODEL_URL</code> on the server, or run
+                with <code className="font-mono text-slate-300">DETECTOR_MODE=mock</code> to test the
+                connection only.
+              </p>
+            </div>
+          )}
           <Snippet label="1. Configuration" filename="edge.env" code={envFile} />
           <p className="text-slate-600 -mt-1">
             Replace <code className="font-mono text-slate-400">&lt;paste your site token here&gt;</code> with
