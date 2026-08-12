@@ -15,8 +15,16 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false)
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
+  const [justSignedUp, setJustSignedUp] = useState(false)
 
-  if (user) return <Navigate to={location.state?.from ?? '/'} replace />
+  // A brand-new workspace has no cameras, no site and no agent, so the
+  // Dashboard is empty and gives no hint what to do next. Send people who just
+  // registered to the setup checklist instead; anyone merely revisiting /signup
+  // while already logged in still goes where they were headed.
+  if (user) {
+    const dest = justSignedUp ? '/get-started' : (location.state?.from ?? '/')
+    return <Navigate to={dest} replace />
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -25,8 +33,10 @@ export default function Signup() {
     if (password !== confirm) { setError('Passwords do not match.'); return }
     setLoading(true)
     try {
+      setJustSignedUp(true)
       await signup(orgName, name, email, password)
     } catch (err) {
+      setJustSignedUp(false)
       setError(err.message || 'Signup failed')
     } finally {
       setLoading(false)

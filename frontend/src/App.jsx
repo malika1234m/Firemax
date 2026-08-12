@@ -13,6 +13,7 @@ import RequestDemo from './pages/RequestDemo'
 import PlatformLogin from './pages/platform/PlatformLogin'
 import PlatformConsole from './pages/platform/PlatformConsole'
 import Dashboard from './pages/Dashboard'
+import GetStarted from './pages/GetStarted'
 import LiveFeed from './pages/LiveFeed'
 import Incidents from './pages/Incidents'
 import Alerts from './pages/Alerts'
@@ -124,6 +125,7 @@ export default function App() {
       <Route path="/platform"        element={<PlatformConsole />} />
 
       <Route element={<ProtectedLayout />}>
+        <Route path="/get-started"   element={<AdminRoute><GetStarted /></AdminRoute>} />
         <Route path="/live-feed"     element={<LiveFeed />}    />
         <Route path="/incidents"     element={<Incidents />}   />
         <Route path="/alerts"        element={<Alerts />}      />

@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Video, AlertTriangle, Bell, Users, Camera, Settings, Home, LogOut, CalendarClock, CreditCard, LifeBuoy, Server } from 'lucide-react'
+import { LayoutDashboard, Video, AlertTriangle, Bell, Users, Camera, Settings, Home, LogOut, CalendarClock, CreditCard, LifeBuoy, Server, Rocket } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { apiFetch } from '../lib/api'
 import logo from '../assets/logo.png'
 
 const NAV = [
   { to: '/',             label: 'Dashboard',    icon: LayoutDashboard, end: true,  adminOnly: false },
+  // Setup is an admin job, and the page reads admin-only endpoints — an
+  // operator would just see an empty checklist and broken links.
+  { to: '/get-started',  label: 'Get Started',  icon: Rocket,          end: false, adminOnly: true  },
   { to: '/live-feed',    label: 'Live Feed',    icon: Video,           end: false, adminOnly: false },
   { to: '/incidents',    label: 'Incidents',    icon: AlertTriangle,   end: false, adminOnly: false },
   { to: '/alerts',       label: 'Alerts',       icon: Bell,            end: false, adminOnly: false },
