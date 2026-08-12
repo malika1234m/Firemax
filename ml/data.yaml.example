@@ -1,0 +1,28 @@
+# Copy to ml/data.yaml and edit the paths.
+#
+# Expected layout (the standard YOLO format that Roboflow exports directly):
+#
+#   ml/datasets/fire/
+#     ├── train/images/*.jpg   train/labels/*.txt
+#     ├── valid/images/*.jpg   valid/labels/*.txt
+#     └── test/images/*.jpg    test/labels/*.txt
+#
+# Each label .txt holds one line per object:  <class_id> <cx> <cy> <w> <h>
+# with coordinates normalised 0-1.
+
+# Use an ABSOLUTE path. Ultralytics resolves a relative `path` against its own
+# datasets directory, not against this file — a relative value silently looks
+# in the wrong place and fails with "images not found".
+path: /absolute/path/to/Firemax/ml/datasets/fire
+train: train/images
+val: valid/images
+test: test/images
+
+# Order matters — class_id in the label files indexes THIS list.
+# Start with the two classes public data actually supports. The gas classes
+# (gas_fire, lpg_fire, chemical_fire) are handled by the deterministic HSV
+# branches in backend/app/detection/detector.py precisely because no labelled
+# training data exists for them.
+names:
+  0: fire
+  1: smoke

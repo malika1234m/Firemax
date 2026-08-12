@@ -45,6 +45,14 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# ── ML training artefacts ────────────────────────────────
+# Datasets and run outputs are large and regenerable. Keep the training
+# CODE (ml/*.py, ml/data.yaml.example) tracked; keep the data out.
+ml/datasets/
+runs/
+wandb/
+ml/data.yaml
+
 # ── ML model weights (large; distribute out-of-band) ─────
 *.pt
 *.pth
