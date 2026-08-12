@@ -1,0 +1,56 @@
+# All three images (backend, frontend, edge) build from the REPO ROOT, so this
+# single file governs every build context.
+#
+# Without it the context is well over 1 GB — the backend virtualenv, node
+# modules and the ML dataset — which is slow to upload, expensive to cache, and
+# would bake host-only material and real secrets into distributable layers.
+
+# ── Local environments (huge, host-specific, reinstalled in the image) ──────
+backend/.venv/
+**/.venv/
+**/venv/
+frontend/node_modules/
+**/node_modules/
+
+# ── Secrets. Config is injected as environment variables at deploy time. ────
+.env
+.env.*
+!.env.example
+!.env.*.example
+edge.env
+*.pem
+*.key
+
+# ── ML data and training output: large and regenerable, needed by neither ───
+# the cloud (no detection) nor the agent image (weights arrive via MODEL_URL).
+ml/datasets/
+runs/
+*.mp4
+*.avi
+*.mov
+
+# Model weights are distributed out-of-band, never baked into an image.
+*.pt
+*.pth
+*.onnx
+
+# ── Build output — produced inside the image; a stale local copy must lose ──
+frontend/dist/
+**/dist/
+
+# ── Python noise ────────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# ── Not part of any runtime image ───────────────────────────────────────────
+backend/tests/
+.git/
+.github/
+.claude/
+.railway/
+*.md
+!README.md
+.DS_Store

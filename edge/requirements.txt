@@ -7,5 +7,20 @@ numpy==2.4.6
 # Needed only for DETECTOR_MODE=yolo (real detection). Mock mode / --selftest
 # do not require these.
 ultralytics==8.2.0
-torch==2.5.1
-torchvision==0.20.1
+
+# Torch, CPU-only and deliberately so.
+#
+# On x86_64 the default PyPI wheel bundles the CUDA runtime plus nvidia
+# libraries — roughly 2.5 GB that a customer's CPU-only box will never execute,
+# on an image they download over an ordinary business connection. The "+cpu"
+# build is published only on PyTorch's own index, hence the extra index below.
+#
+# arm64 (Raspberry Pi, Jetson) is different: there are no CUDA wheels for it at
+# all, so PyPI's plain wheel is already CPU-only and NO "+cpu" variant exists.
+# Pinning "+cpu" unconditionally would break the linux/arm64 image the publish
+# workflow builds, so the marker splits the two.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu       ; platform_machine == "x86_64"
+torchvision==0.20.1+cpu ; platform_machine == "x86_64"
+torch==2.5.1            ; platform_machine != "x86_64"
+torchvision==0.20.1     ; platform_machine != "x86_64"

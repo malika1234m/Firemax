@@ -15,7 +15,10 @@
 
 services:
   agent:
-    image: ghcr.io/firemex/firemex-agent:latest
+    # Published by .github/workflows/publish-agent.yml, which tags the image
+    # ghcr.io/<repo owner>/firemex-agent. Must match that owner exactly or the
+    # pull 404s on a customer's machine.
+    image: ghcr.io/malika1234m/firemex-agent:latest
     container_name: firemex-agent
     restart: unless-stopped
     env_file: ./edge.env

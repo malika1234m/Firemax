@@ -35,7 +35,11 @@ services:
 
   # ── FiremeX Backend (FastAPI control plane) ───────────────────────────────
   backend:
-    build: ./backend
+    # Root context — the Dockerfile copies backend/ from the repo root, so the
+    # same build works here and on a PaaS that uploads the whole repository.
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: firemax-backend
     restart: unless-stopped
     networks: [firemax-net]
@@ -53,7 +57,9 @@ services:
   # nginx.conf proxies /api and /ws through to the backend, so this is the
   # only service a browser needs to reach.
   frontend:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: firemax-frontend
     restart: unless-stopped
     networks: [firemax-net]

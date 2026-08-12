@@ -2,12 +2,20 @@
 # in development. Without this, the container gets stock nginx: no /api proxy
 # (every API call 404s) and no history fallback (refreshing /incidents 404s).
 #
-# "backend" is the service name from docker-compose.yml; Docker's embedded DNS
-# resolves it on the shared firemax-net network.
+# This is a TEMPLATE. docker-entrypoint.sh substitutes ${PORT},
+# ${BACKEND_ORIGIN} and ${BACKEND_HOST} at container start, then execs nginx.
+# Templating exists because the upstream differs per environment: it is
+# http://backend:8000 under Docker Compose, but a platform-assigned hostname on
+# a PaaS, which is not knowable at build time.
+#
+# Keeping the API same-origin is not a style choice — the session cookie is set
+# SameSite=Lax with no Domain attribute (see routers/auth.py), so it is
+# host-only. Serve the SPA and the API from different origins and login breaks:
+# the browser will not attach the cookie to the API call.
 
 server {
-    listen 80;
-    server_name localhost;
+    listen ${PORT};
+    server_name _;
 
     root /usr/share/nginx/html;
     index index.html;
@@ -17,11 +25,19 @@ server {
     # root (/auth/login, /alerts/, ...). The trailing slash on proxy_pass
     # strips the /api prefix — the same rewrite Vite does in dev.
     location /api/ {
-        proxy_pass http://backend:8000/;
-        proxy_set_header Host              $host;
+        proxy_pass ${BACKEND_ORIGIN}/;
+
+        # Host must name the UPSTREAM, not this server. A PaaS routes by Host,
+        # so forwarding the browser's Host would land the request on the wrong
+        # service (or nowhere). Harmless under Compose, essential otherwise.
+        proxy_set_header Host              ${BACKEND_HOST};
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Needed when the upstream is https — without SNI the TLS handshake
+        # fails against name-based virtual hosting.
+        proxy_ssl_server_name on;
 
         # Alert snapshots are base64 JPEGs, so responses get large.
         proxy_read_timeout 60s;
@@ -32,11 +48,12 @@ server {
     # /ws/{camera_id} is passed through unrewritten (the backend mounts it at
     # that same path), with the upgrade headers a WebSocket handshake needs.
     location /ws/ {
-        proxy_pass http://backend:8000;
+        proxy_pass ${BACKEND_ORIGIN};
         proxy_http_version 1.1;
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host       $host;
+        proxy_set_header Host       ${BACKEND_HOST};
+        proxy_ssl_server_name on;
 
         # A live feed can idle between frames; don't drop it at the default 60s.
         proxy_read_timeout 3600s;

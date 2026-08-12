@@ -1,14 +1,22 @@
+# Cloud control plane only. Detection moved to the edge agent in Week 20, so
+# NOTHING here needs torch / ultralytics / opencv — verified: no module under
+# backend/app imports them outside app/detection/, which the server never loads
+# (see the lifespan comment in app/main.py).
+#
+# Do not "restore" the ML stack here. On linux/amd64 `pip install torch` pulls
+# the CUDA-bundled wheel plus nvidia libraries — roughly 2.5 GB of image for
+# code that never executes, which is what made the container build fail on
+# constrained disks and makes a PaaS deploy slow and expensive.
+#
+# The ML dependencies live in two places that genuinely need them:
+#   edge/requirements.txt        — the agent, which does run detection
+#   backend/requirements-dev.txt — the demo-data seeding script
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 motor==3.4.0
 pymongo==4.6.3
 pydantic==2.7.1
 pydantic-settings==2.2.1
-ultralytics==8.2.0
-torch==2.5.1
-torchvision==0.20.1
-opencv-python-headless==4.9.0.80
-numpy==2.4.6
 python-dotenv==1.0.1
 bcrypt==4.2.0
 pyjwt==2.9.0
