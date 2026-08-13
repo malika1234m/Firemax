@@ -1,10 +1,46 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import Optional
-from datetime import datetime
+from pydantic import BaseModel, Field, field_validator, PlainSerializer
+from typing import Annotated, Optional
+from datetime import datetime, timezone
 import re
 import uuid
 import itertools
 import time
+
+
+def utc_now() -> datetime:
+    """Timezone-aware UTC. Replaces datetime.utcnow(), which returns a NAIVE
+    datetime — the root of the timestamp bug below."""
+    return datetime.now(timezone.utc)
+
+
+def _serialize_utc(dt: datetime) -> str:
+    """Always emit an ISO-8601 string carrying an explicit UTC offset.
+
+    Timestamps were stored with datetime.utcnow(), i.e. naive, and serialized
+    as "2026-08-13T10:29:22" with no zone. A browser parses that as LOCAL time,
+    so an event that happened seconds ago displayed as 5.5 hours old in
+    UTC+5:30 — and every relative label ("Last seen: 5h ago") was wrong by the
+    viewer's offset.
+
+    Naive values are treated as UTC because that is what they have always been.
+    This is serialization-only: no stored data changes, and old records read
+    back correctly.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+# Use for every datetime the API returns.
+#
+# when_used="json" is essential: these models are also written to MongoDB via
+# model_dump(), and without it every datetime would be stored as a STRING —
+# silently breaking range queries, sorting and comparisons like
+# `expires_at < now`. JSON mode covers exactly the API responses we want fixed
+# and leaves persistence as real datetimes.
+UTCDateTime = Annotated[
+    datetime, PlainSerializer(_serialize_utc, return_type=str, when_used="json")
+]
 
 E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
 
@@ -12,15 +48,15 @@ E164_RE = re.compile(r"^\+[1-9]\d{1,14}$")
 class Organization(BaseModel):
     org_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
     # Stripe billing state
     stripe_customer_id: Optional[str] = None
     stripe_subscription_id: Optional[str] = None
     plan: str = "trial"                      # "trial" | "starter" | "pro"
     subscription_status: str = "trialing"    # trialing | active | past_due | canceled | incomplete
-    trial_ends_at: Optional[datetime] = None
-    current_period_end: Optional[datetime] = None
+    trial_ends_at: Optional[UTCDateTime] = None
+    current_period_end: Optional[UTCDateTime] = None
 
     # Detection tuning — applied live to every camera in this org (see
     # detection/pipeline.py). confidence_threshold is the bar a detection
@@ -47,8 +83,8 @@ class OrganizationPublic(BaseModel):
     name: str
     plan: str
     subscription_status: str
-    trial_ends_at: Optional[datetime] = None
-    current_period_end: Optional[datetime] = None
+    trial_ends_at: Optional[UTCDateTime] = None
+    current_period_end: Optional[UTCDateTime] = None
     # "manual" when FiremeX staff set the plan by hand rather than it coming
     # from a payment provider. Exposed so the billing page can say "managed by
     # FiremeX" instead of showing an empty renewal date it will never have.
@@ -94,7 +130,7 @@ class Camera(BaseModel):
     frame_rate: int = 30
     ai_tracking: bool = True
     enabled: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class CameraCreate(BaseModel):
@@ -128,20 +164,20 @@ class Alert(BaseModel):
     acknowledged: bool = False
     recipient: str = ""
     channel: str = "push"            # push | sms | email | sms/push | push/alarm ...
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: UTCDateTime = Field(default_factory=utc_now)
     frame_b64: Optional[str] = None   # base64 JPEG snapshot
 
     # Human-in-the-loop escalation — automations (HA, Twilio) only fire once
     # an operator promotes a raw detection to a confirmed incident.
     promoted_to_incident: bool = False
-    promoted_at: Optional[datetime] = None
+    promoted_at: Optional[UTCDateTime] = None
     promoted_by: Optional[str] = None    # user_id of the operator who promoted it
 
     # Required when status is set to "resolved" — feeds back into model training.
     resolution_verdict: Optional[str] = None   # "true_fire" | "false_alarm"
     resolution_remark: Optional[str] = None
     resolved_by: Optional[str] = None    # user_id of the operator who resolved it
-    resolved_at: Optional[datetime] = None
+    resolved_at: Optional[UTCDateTime] = None
 
 
 class AlertUpdate(BaseModel):
@@ -183,7 +219,7 @@ class User(BaseModel):
     # every issued JWT; a token whose version no longer matches is rejected,
     # so old sessions die the moment the password changes (see security.py).
     token_version: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class UserPublic(BaseModel):
@@ -194,7 +230,7 @@ class UserPublic(BaseModel):
     email: str
     role: str
     notification_prefs: NotificationPrefs = Field(default_factory=NotificationPrefs)
-    created_at: datetime
+    created_at: UTCDateTime
 
 
 class ChangePasswordRequest(BaseModel):
@@ -248,8 +284,8 @@ class Complaint(BaseModel):
     category: str = "general"       # general | billing | detection | technical | other
     status: str = "open"            # open | in_progress | resolved
     staff_note: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
+    updated_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class ComplaintCreate(BaseModel):
@@ -271,7 +307,7 @@ class PlatformAdmin(BaseModel):
     email: str
     name: str
     password_hash: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 # A site is "online" only while heartbeats keep arriving. The agent sends one
@@ -292,9 +328,14 @@ def effective_site_status(site: dict) -> str:
     Derivation is used rather than a background sweeper because it cannot drift,
     needs no scheduler, and is correct the instant it is read.
     """
-    if not site.get("last_seen_at"):
+    last_seen = site.get("last_seen_at")
+    if not last_seen:
         return "pending"          # enrolled but no agent has ever connected
-    age = (datetime.utcnow() - site["last_seen_at"]).total_seconds()
+    # Mongo returns naive UTC by default, but tolerate aware values so this
+    # can't start raising if the driver is ever configured with tz_aware=True.
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=timezone.utc)
+    age = (utc_now() - last_seen).total_seconds()
     return "online" if age <= SITE_OFFLINE_AFTER_SECONDS else "offline"
 
 
@@ -309,8 +350,8 @@ class Site(BaseModel):
     token_hash: str
     status: str = "pending"          # pending | online | offline
     agent_version: Optional[str] = None
-    last_seen_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_seen_at: Optional[UTCDateTime] = None
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class SiteCreate(BaseModel):
@@ -323,8 +364,8 @@ class SitePublic(BaseModel):
     name: str
     status: str
     agent_version: Optional[str] = None
-    last_seen_at: Optional[datetime] = None
-    created_at: datetime
+    last_seen_at: Optional[UTCDateTime] = None
+    created_at: UTCDateTime
 
 
 # ── Edge-agent → cloud payloads ─────────────────────────────────────────────
@@ -354,9 +395,9 @@ class AgentEvent(BaseModel):
 class PasswordResetToken(BaseModel):
     token: str = Field(default_factory=lambda: uuid.uuid4().hex)
     user_id: str
-    expires_at: datetime
+    expires_at: UTCDateTime
     used: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class SignupRequest(BaseModel):
@@ -387,17 +428,17 @@ class Shift(BaseModel):
     org_id: str
     user_id: str
     user_name: str
-    start_time: datetime
-    end_time: datetime
+    start_time: UTCDateTime
+    end_time: UTCDateTime
     label: str = ""       # e.g. "Morning", "Night"
     notes: str = ""
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class ShiftCreate(BaseModel):
     user_id: str
-    start_time: datetime
-    end_time: datetime
+    start_time: UTCDateTime
+    end_time: UTCDateTime
     label: str = ""
     notes: str = ""
 
@@ -408,7 +449,7 @@ class AuthorityContact(BaseModel):
     name: str
     phone: str
     notify_via: str = "sms"     # "sms" | "call" | "both"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class AuthorityContactCreate(BaseModel):
@@ -431,7 +472,7 @@ class DemoRequest(BaseModel):
     company: str
     phone: Optional[str] = None
     message: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: UTCDateTime = Field(default_factory=utc_now)
 
 
 class DemoRequestCreate(BaseModel):

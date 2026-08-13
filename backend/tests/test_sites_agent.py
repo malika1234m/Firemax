@@ -81,11 +81,40 @@ async def test_events_create_org_scoped_alerts(client):
     res = await signup(client)
     org_id = res.json()["org_id"]
     _, token = await _create_site(client)
+    cam = (await client.post("/cameras/", json={"name": "Bay 1", "stream_url": "rtsp://10.0.0.5"})).json()
     await client.post("/agent/events", headers=AGENT(token),
-                      json=[{"camera_id": "c1", "camera_name": "Bay 1", "hazard_type": "fire", "confidence": 0.97, "zone": "A"}])
+                      json=[{"camera_id": cam["camera_id"], "camera_name": "Bay 1",
+                             "hazard_type": "fire", "confidence": 0.97, "zone": "A"}])
     db = get_db()
     alert = await db.alerts.find_one({"camera_name": "Bay 1"})
     assert alert is not None and alert["org_id"] == org_id and alert["hazard_type"] == "fire"
+
+
+async def test_events_for_deleted_camera_are_ignored(client):
+    """An agent keeps its camera list until restarted, so it goes on reporting
+    for cameras that have since been deleted. Those must not become alerts —
+    otherwise incidents appear for a camera the operator can no longer see."""
+    await signup(client)
+    _, token = await _create_site(client)
+    cam = (await client.post("/cameras/", json={"name": "Gone", "stream_url": "rtsp://10.0.0.6"})).json()
+    await client.delete(f"/cameras/{cam['camera_id']}")
+
+    body = await client.post("/agent/events", headers=AGENT(token),
+                             json=[{"camera_id": cam["camera_id"], "camera_name": "Gone",
+                                    "hazard_type": "fire", "confidence": 0.9, "zone": "A"}])
+    assert body.json() == {"status": "ok", "created": 0, "ignored": 1}
+    assert await get_db().alerts.find_one({"camera_name": "Gone"}) is None
+
+
+async def test_selftest_event_is_always_accepted(client):
+    """`agent.py --selftest` posts an event before any camera exists; that is
+    how a site is commissioned, so it must bypass the camera check."""
+    await signup(client)
+    _, token = await _create_site(client)
+    body = await client.post("/agent/events", headers=AGENT(token),
+                             json=[{"camera_id": "selftest", "camera_name": "Self-Test Camera",
+                                    "hazard_type": "smoke", "confidence": 0.42, "zone": "Self-Test"}])
+    assert body.json()["created"] == 1
 
 
 # ── Cross-org isolation ──────────────────────────────────────────────────────

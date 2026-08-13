@@ -18,6 +18,11 @@ from app.relay import relay_hub
 logger = logging.getLogger("agent")
 router = APIRouter(prefix="/agent", tags=["agent"])
 
+# `agent.py --selftest` deliberately posts one event for a camera that does not
+# exist, to prove the whole path end to end before any camera is configured.
+# It must survive the deleted-camera check below or commissioning breaks.
+SELFTEST_CAMERA_ID = "selftest"
+
 
 @router.get("/config")
 async def agent_config(site: dict = Depends(require_agent)):
@@ -101,8 +106,22 @@ async def agent_events(events: list[AgentEvent], site: dict = Depends(require_ag
     site's org). Raw detections only — HA automations/authority calls still
     require a human to promote them to an incident."""
     db = get_db()
-    created = 0
+    created, ignored = 0, 0
     for e in events:
+        # The agent reads its camera list once at startup, so after a camera is
+        # deleted or disabled it keeps watching and reporting on it. Without
+        # this check those events became alerts for a camera the operator can
+        # no longer see anywhere — incidents appearing from nothing. The cloud
+        # is the authority on which cameras exist, so it rejects the rest.
+        if e.camera_id != SELFTEST_CAMERA_ID:
+            camera = await db.cameras.find_one(
+                {"camera_id": e.camera_id, "org_id": site["org_id"]},
+                {"enabled": 1},
+            )
+            if not camera or not camera.get("enabled", True):
+                ignored += 1
+                continue
+
         alert = Alert(
             org_id=site["org_id"],
             camera_id=e.camera_id,
@@ -115,4 +134,10 @@ async def agent_events(events: list[AgentEvent], site: dict = Depends(require_ag
         await db.alerts.insert_one(alert.model_dump())
         await send_alert_email(alert)
         created += 1
-    return {"status": "ok", "created": created}
+
+    if ignored:
+        logger.info(
+            f"[{site['site_id']}] ignored {ignored} event(s) for cameras that are "
+            "deleted or disabled — the agent needs a restart to pick up the change"
+        )
+    return {"status": "ok", "created": created, "ignored": ignored}
