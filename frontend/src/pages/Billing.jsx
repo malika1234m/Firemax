@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { CreditCard, ExternalLink, CheckCircle2, Camera, Users, Clock, Sparkles, Rocket, Crown } from 'lucide-react'
 import { apiFetch, apiJson } from '../lib/api'
 import { useToast } from '../context/ToastContext'
@@ -76,13 +76,6 @@ export default function Billing() {
         )}
       </PageHeader>
 
-      {!stripeConfigured && (
-        <div className="glass-card border border-warn/25 bg-warn/[0.04] rounded-xl px-4 py-3 text-[12px] text-warn">
-          Billing isn't configured on this server yet — set <code className="font-mono">STRIPE_SECRET_KEY</code> in
-          backend/.env to enable real checkout. Plan limits are still enforced below.
-        </div>
-      )}
-
       {/* ── Stat strip ─────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Current Plan" value={limits.label}
@@ -147,11 +140,20 @@ export default function Billing() {
                   <CheckCircle2 size={13} /> Current plan
                 </div>
               ) : !isTrial ? (
-                <button onClick={() => handleUpgrade(plan)} disabled={busyPlan === plan || !stripeConfigured}
-                        title={!stripeConfigured ? "Billing isn't configured on this server yet — see the notice above." : undefined}
-                        className="w-full text-[12px] font-medium bg-brand text-void py-2.5 rounded-lg hover:bg-brand/85 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                  {busyPlan === plan ? 'Redirecting…' : `Upgrade to ${plan}`}
-                </button>
+                // Until card payment is live, offer the route that actually
+                // works (we change the plan by hand) rather than a dead button
+                // whose only explanation was a developer-facing notice.
+                stripeConfigured ? (
+                  <button onClick={() => handleUpgrade(plan)} disabled={busyPlan === plan}
+                          className="w-full text-[12px] font-medium bg-brand text-void py-2.5 rounded-lg hover:bg-brand/85 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    {busyPlan === plan ? 'Redirecting…' : `Upgrade to ${plan}`}
+                  </button>
+                ) : (
+                  <Link to="/support"
+                        className="block w-full text-center text-[12px] font-medium border border-brand/30 text-brand py-2.5 rounded-lg hover:bg-brand/10 transition-colors">
+                    Contact us to upgrade
+                  </Link>
+                )
               ) : (
                 <p className="text-[11px] text-slate-700 text-center py-2">14-day trial, no card required</p>
               )}
