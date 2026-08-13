@@ -37,11 +37,18 @@ class RelayClient:
     def stop(self):
         self._running = False
 
-    def send_frame(self, camera_id: str, frame_b64: str, fps: float):
+    def send_frame(self, camera_id: str, frame_b64: str, fps: float, detections=None):
         """Thread-safe; drops frames if the send queue is backed up (live feed
-        favours freshness over completeness)."""
+        favours freshness over completeness).
+
+        detections are the boxes found in THIS frame. The cloud already relays
+        the field on to viewers — it was simply never being populated, so the
+        dashboard's hazard badge and overlay could never fire."""
         try:
-            self._frames.put_nowait({"type": "frame", "camera_id": camera_id, "frame_b64": frame_b64, "fps": fps})
+            self._frames.put_nowait({
+                "type": "frame", "camera_id": camera_id, "frame_b64": frame_b64,
+                "fps": fps, "detections": detections or [],
+            })
         except queue.Full:
             pass
 

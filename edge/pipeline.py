@@ -14,6 +14,49 @@ logger = logging.getLogger("edge.pipeline")
 
 OFFLINE_THRESHOLD_SECONDS = 15
 
+# BGR, matching the hazard colours documented in ARCHITECTURE.md. Grouped by
+# what produced the detection so an operator can read the mechanism off the
+# picture: red for the learned fire/smoke classes, blue/green for the
+# colour-rule gas classes, yellow for optical flow, purple for geometry.
+HAZARD_COLOURS = {
+    "fire":          (0, 0, 255),
+    "flame":         (0, 0, 255),
+    "smoke":         (0, 140, 255),
+    "gas_fire":      (255, 140, 0),
+    "lpg_fire":      (255, 90, 90),
+    "chemical_fire": (0, 200, 0),
+    "gas_shimmer":   (0, 215, 255),
+    "person_down":   (200, 0, 200),
+}
+_DEFAULT_COLOUR = (200, 200, 200)
+
+
+def annotate(frame, detections):
+    """Draw labelled boxes on a COPY of the frame.
+
+    Used for the snapshot attached to an alert, so a reviewer sees what the
+    model actually saw rather than a bare photograph — the snapshot is the
+    evidence someone judges a true/false alarm on. The live feed draws its own
+    boxes in the browser from the same coordinates, which keeps the streamed
+    JPEG clean and lets the boxes stay crisp at any display size.
+    """
+    import cv2
+
+    out = frame.copy()
+    for d in detections:
+        colour = HAZARD_COLOURS.get(d.label.lower(), _DEFAULT_COLOUR)
+        x1, y1, x2, y2 = int(d.x1), int(d.y1), int(d.x2), int(d.y2)
+        cv2.rectangle(out, (x1, y1), (x2, y2), colour, 2)
+
+        label = f"{d.label.replace('_', ' ')} {d.confidence:.0%}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        # Keep the caption inside the frame when the box touches the top edge.
+        top = max(y1, th + 6)
+        cv2.rectangle(out, (x1, top - th - 6), (x1 + tw + 6, top), colour, -1)
+        cv2.putText(out, label, (x1 + 3, top - 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    return out
+
 
 class EdgePipeline:
     def __init__(self, camera: dict, detector, on_event, confidence_threshold: float, cooldown_seconds: int,
@@ -83,14 +126,25 @@ class EdgePipeline:
                     self._last_streamed = now
                     ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                     if ok:
-                        self.on_frame(self.camera_id, base64.b64encode(jpeg.tobytes()).decode(), round(self.current_fps, 1))
+                        # Coordinates travel with the frame; the browser draws
+                        # them. Sending the clean JPEG keeps boxes sharp when
+                        # the tile is scaled up, and lets them be toggled off.
+                        self.on_frame(
+                            self.camera_id,
+                            base64.b64encode(jpeg.tobytes()).decode(),
+                            round(self.current_fps, 1),
+                            [d.model_dump() for d in detections],
+                        )
 
             if hazards:
                 now = time.time()
                 if now - self._last_alert_time >= self.cooldown_seconds:
                     self._last_alert_time = now
                     top = max(hazards, key=lambda d: d.confidence)
-                    ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    # Annotated: the snapshot is the evidence an operator judges
+                    # a true or false alarm on, so it must show what triggered it.
+                    ok, jpeg = cv2.imencode(".jpg", annotate(frame, hazards),
+                                            [cv2.IMWRITE_JPEG_QUALITY, 70])
                     frame_b64 = base64.b64encode(jpeg.tobytes()).decode() if ok else None
                     self.on_event({
                         "camera_id": self.camera_id,

@@ -78,8 +78,8 @@ def run():
     by_id = {}
     relay = RelayClient(cfg.cloud_url, cfg.token,
                         on_command=lambda kind, cam: _set_streaming(by_id, kind, cam))
-    def on_frame(camera_id, frame_b64, fps):
-        relay.send_frame(camera_id, frame_b64, fps)
+    def on_frame(camera_id, frame_b64, fps, detections=None):
+        relay.send_frame(camera_id, frame_b64, fps, detections)
 
     _reconcile(remote, by_id, cfg, detector, on_event, on_frame, EdgePipeline)
     relay.start()

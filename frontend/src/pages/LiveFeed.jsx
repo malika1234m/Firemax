@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Grid2x2, Grid3x3, Pin, PinOff } from 'lucide-react'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -116,6 +116,48 @@ export default function LiveFeed() {
 // anything older than this means frames have stopped arriving.
 const FRAME_STALE_MS = 10_000
 
+// Mirrors HAZARD_COLOURS in edge/pipeline.py so a live box and the box burned
+// into an alert snapshot are the same colour for the same hazard. Grouped by
+// detection mechanism: red = learned model, blue/green = colour rules,
+// yellow = optical flow, purple = geometry.
+const BOX_COLOURS = {
+  fire:          '#ff3b30',
+  flame:         '#ff3b30',
+  smoke:         '#ff8c00',
+  gas_fire:      '#0a84ff',
+  lpg_fire:      '#5a5aff',
+  chemical_fire: '#00c800',
+  gas_shimmer:   '#ffd700',
+  person_down:   '#d24bd2',
+}
+
+/** Draws the boxes onto the canvas in the frame's own pixel space, so CSS can
+ *  scale and crop the result exactly as it would a plain image. */
+function drawDetections(ctx, detections, width) {
+  // Scale strokes and text with the source resolution, otherwise boxes look
+  // hairline on a 1080p frame and clumsy on a 480p one.
+  const scale = Math.max(width / 640, 1)
+  ctx.lineWidth = 2 * scale
+  ctx.font = `${12 * scale}px ui-monospace, monospace`
+  ctx.textBaseline = 'alphabetic'
+
+  for (const d of detections) {
+    const colour = BOX_COLOURS[d.label?.toLowerCase()] ?? '#c8c8c8'
+    const w = d.x2 - d.x1, h = d.y2 - d.y1
+    ctx.strokeStyle = colour
+    ctx.strokeRect(d.x1, d.y1, w, h)
+
+    const label = `${String(d.label).replace(/_/g, ' ')} ${Math.round(d.confidence * 100)}%`
+    const tw = ctx.measureText(label).width
+    const th = 16 * scale
+    const top = Math.max(d.y1, th)          // keep the caption inside the frame
+    ctx.fillStyle = colour
+    ctx.fillRect(d.x1, top - th, tw + 8 * scale, th)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(label, d.x1 + 4 * scale, top - 4 * scale)
+  }
+}
+
 function Tile({ camera, pinned, onTogglePin, onHazardChange }) {
   const { frame, connected } = useWebSocket(camera.camera_id)
 
@@ -131,6 +173,28 @@ function Tile({ camera, pinned, onTogglePin, onHazardChange }) {
     return () => clearInterval(id)
   }, [])
   const live = lastFrameAt !== null && Date.now() - lastFrameAt < FRAME_STALE_MS
+
+  // Render the JPEG and its boxes into one canvas. Compositing them together
+  // means the overlay cannot drift out of alignment when the tile is resized
+  // or cropped — a separate absolutely-positioned overlay has to replicate
+  // object-cover's maths and gets it subtly wrong.
+  const canvasRef = useRef(null)
+  useEffect(() => {
+    if (!live || !frame?.frame_b64) return
+    let cancelled = false
+    const img = new Image()
+    img.onload = () => {
+      const canvas = canvasRef.current
+      if (cancelled || !canvas) return
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0)
+      drawDetections(ctx, frame.detections ?? [], img.naturalWidth)
+    }
+    img.src = `data:image/jpeg;base64,${frame.frame_b64}`
+    return () => { cancelled = true }
+  }, [frame, live])
 
   // Detections belong to the frame they came with; once that frame is stale
   // they are history, not a current hazard.
@@ -151,7 +215,7 @@ function Tile({ camera, pinned, onTogglePin, onHazardChange }) {
               indistinguishable from a live camera pointed at a quiet scene —
               the most dangerous thing this page could show. */}
           {live && frame?.frame_b64
-            ? <img src={`data:image/jpeg;base64,${frame.frame_b64}`} className="w-full h-full object-cover" alt="" />
+            ? <canvas ref={canvasRef} className="w-full h-full object-cover" />
             : <div className="w-full h-full flex flex-col items-center justify-center gap-1.5">
                 <span className="font-mono text-[10px] text-slate-700 tracking-[0.2em] uppercase">No Signal</span>
                 <span className="text-[10px] text-slate-700">
