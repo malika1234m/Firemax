@@ -49,6 +49,10 @@ class OrganizationPublic(BaseModel):
     subscription_status: str
     trial_ends_at: Optional[datetime] = None
     current_period_end: Optional[datetime] = None
+    # "manual" when FiremeX staff set the plan by hand rather than it coming
+    # from a payment provider. Exposed so the billing page can say "managed by
+    # FiremeX" instead of showing an empty renewal date it will never have.
+    plan_source: Optional[str] = None
     confidence_threshold: float = 0.50
     alert_cooldown_seconds: int = 30
 

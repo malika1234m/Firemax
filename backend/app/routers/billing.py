@@ -87,12 +87,20 @@ async def billing_status(user: UserPublic = Depends(get_current_user)):
         "usage": {"cameras": camera_count, "users": user_count},
         "limits": {"max_cameras": current["max_cameras"], "max_users": current["max_users"], "label": current["label"]},
         "stripe_configured": stripe_configured(),
+        # Every plan in the catalog, including the free trial. This used to be
+        # filtered to purchasable plans (PLAN_PRICING), which left the pricing
+        # page with no data for the trial card — it fell back to the CURRENT
+        # org's limits and showed a Pro customer "50 cameras" under Trial.
+        # Purchasability is decided by PLAN_PRICING at checkout, not by what the
+        # page is allowed to describe.
         "plans": {
             p["plan_id"]: {
                 "max_cameras": p["max_cameras"], "max_users": p["max_users"],
-                "label": p["label"], "amount_usd": p["price_usd"], "features": p.get("features", []),
+                "label": p["label"], "amount_usd": p["price_usd"],
+                "features": p.get("features", []),
+                "purchasable": p["plan_id"] in PLAN_PRICING,
             }
-            for p in plans if p["plan_id"] in PLAN_PRICING
+            for p in plans
         },
     }
 

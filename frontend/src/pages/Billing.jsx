@@ -65,6 +65,14 @@ export default function Billing() {
     ? Math.max(0, Math.ceil((new Date(org.trial_ends_at) - Date.now()) / 86400_000))
     : null
 
+  const renewal = org.plan === 'trial'
+    ? { label: 'Trial Ends In', value: trialDaysLeft > 0 ? `${trialDaysLeft}d` : 'Ended' }
+    : org.current_period_end
+      ? { label: 'Renews', value: new Date(org.current_period_end).toLocaleDateString() }
+      : org.plan_source === 'manual'
+        ? { label: 'Billing', value: 'Managed by FiremeX' }
+        : { label: 'Renews', value: 'Not scheduled' }
+
   return (
     <div className="max-w-6xl space-y-6 fade-up">
       <PageHeader title="Billing" subtitle="Plan, usage & payment">
@@ -84,10 +92,9 @@ export default function Billing() {
                   danger={usage.cameras >= limits.max_cameras} />
         <StatCard label="Users Used" value={`${usage.users}/${limits.max_users}`} icon={Users}
                   danger={usage.users >= limits.max_users} />
-        <StatCard label={org.plan === 'trial' ? 'Trial Ends In' : 'Renews'} icon={Clock}
-                  value={org.plan === 'trial'
-                    ? (trialDaysLeft > 0 ? `${trialDaysLeft}d` : 'Ended')
-                    : (org.current_period_end ? new Date(org.current_period_end).toLocaleDateString() : '—')} />
+        {/* A manually-set plan has no billing period, so "Renews —" is not a
+            missing value to fix but a state to name honestly. */}
+        <StatCard label={renewal.label} icon={Clock} value={renewal.value} />
       </div>
 
       {/* ── Plan cards ─────────────────────────────── */}
@@ -96,8 +103,11 @@ export default function Billing() {
           const isCurrent = org.plan === plan
           const isTrial = plan === 'trial'
           const Icon = PLAN_ICON[plan]
-          const cameras = isTrial ? limits.max_cameras : plans[plan]?.max_cameras
-          const users   = isTrial ? limits.max_users   : plans[plan]?.max_users
+          // Always the PLAN's own limits. Falling back to `limits` here was the
+          // bug: those are the current org's limits, so a Pro customer saw
+          // Pro's ceilings printed under the Trial card.
+          const cameras = plans[plan]?.max_cameras
+          const users   = plans[plan]?.max_users
           return (
             <div key={plan} className={`glass-card rounded-xl p-5 border flex flex-col gap-4 relative
               ${isCurrent ? 'border-brand/40' : plan === 'starter' ? 'border-white/[0.12]' : 'border-white/[0.07]'}`}>
@@ -114,7 +124,7 @@ export default function Billing() {
                 <div>
                   <p className="font-raj font-semibold text-[15px] text-white capitalize">{plan}</p>
                   <p className="font-raj font-bold text-[22px] text-white leading-none mt-0.5">
-                    {isTrial ? 'Free' : `$${plans[plan].amount_usd}`}
+                    {isTrial ? 'Free' : `$${plans[plan]?.amount_usd ?? '—'}`}
                     {!isTrial && <span className="text-[11px] text-slate-600 font-normal">/mo</span>}
                   </p>
                 </div>
