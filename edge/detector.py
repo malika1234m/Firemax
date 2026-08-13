@@ -18,7 +18,7 @@ class MockDetector:
         return []
 
 
-def build_detector(mode: str):
+def build_detector(mode: str, confidence_threshold: float | None = None):
     if mode == "yolo":
         # Fetch/verify the weights before loading. HazardDetector silently
         # falls back to a generic COCO model when the file is missing, which
@@ -30,6 +30,9 @@ def build_detector(mode: str):
         # Imported lazily so mock mode / self-test need none of the ML stack.
         from app.detection.detector import HazardDetector
         logger.info("Detector: YOLO (real model)")
-        return HazardDetector()
+        # Both values are passed explicitly so the shared detector never reaches
+        # for the cloud's settings module, which isn't installed here.
+        return HazardDetector(model_path=AgentConfig.model_path,
+                              threshold=confidence_threshold)
     logger.info("Detector: mock (no ML) — set DETECTOR_MODE=yolo for real detection")
     return MockDetector()

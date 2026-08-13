@@ -2,8 +2,14 @@ import os
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from app.config import settings
 from app.models import DetectionBox
+
+# NOTE: app.config is deliberately NOT imported at module level. This module is
+# shared with the edge agent, which ships without the cloud's settings machinery
+# (pydantic-settings) and has no business carrying the cloud's Mongo/Stripe/
+# Twilio configuration onto a customer's machine. Callers pass what they need;
+# the cloud's settings are read lazily only when they don't.
+DEFAULT_CONFIDENCE_THRESHOLD = 0.50
 
 # ── Hazard labels ──────────────────────────────────────────────────────────
 YOLO_HAZARD_LABELS  = {"fire", "smoke", "flame", "gas_shimmer", "person_down"}
@@ -56,8 +62,17 @@ class HazardDetector:
       5. Pose analysis → person down (indirect CO signal)
     """
 
-    def __init__(self):
-        model_path = settings.MODEL_PATH
+    def __init__(self, model_path: str | None = None, threshold: float | None = None):
+        # Both arguments are supplied by the edge agent. Only when a caller
+        # omits them (the cloud, historically) is app.config touched at all —
+        # importing it on the edge raises ModuleNotFoundError, which is exactly
+        # how this surfaced: the model downloaded and verified, then the agent
+        # crash-looped on an import it never needed.
+        if model_path is None or threshold is None:
+            from app.config import settings
+            model_path = model_path or settings.MODEL_PATH
+            threshold = settings.CONFIDENCE_THRESHOLD if threshold is None else threshold
+
         if not os.path.exists(model_path):
             fallback = os.path.join(os.path.dirname(model_path), "yolov8n.pt")
             if os.path.exists(fallback):
@@ -68,7 +83,7 @@ class HazardDetector:
                 print("[detector] Downloading yolov8n.pt …")
 
         self.model      = YOLO(model_path)
-        self.threshold  = settings.CONFIDENCE_THRESHOLD
+        self.threshold  = threshold if threshold is not None else DEFAULT_CONFIDENCE_THRESHOLD
         self._prev_gray = None   # previous frame for optical flow
         print(f"[detector] Loaded: {model_path}  threshold={self.threshold}")
         print(f"[detector] Gas shimmer detection: ENABLED (optical flow)")

@@ -51,7 +51,9 @@ npm run dev               # http://localhost:5173
 ```bash
 cd edge
 pip install -r requirements.txt
-cp .env.example .env      # set AGENT_TOKEN from FiremeX → Sites → Create Site
+export AGENT_TOKEN=...    # from FiremeX → Sites → Create Site
+export FIREMEX_CLOUD_URL=http://localhost:8000
+python agent.py --selftest   # check the connection first
 python agent.py
 ```
 
@@ -119,8 +121,11 @@ customer install is two files and `docker compose up -d`. See
 
 ## Configuration
 
-All configuration comes from environment variables. `backend/.env.example` and
-`edge/.env.example` document every key; copy them to `.env` and fill in the values.
+All configuration comes from environment variables. `backend/.env.example`
+documents every backend key; copy it to `.env` and fill in the values. The edge
+agent's variables are documented in [edge/README.md](edge/README.md) — the
+dashboard generates a filled-in `edge.env` for a given site, so there is no
+example file to drift out of date.
 
 Nothing sensitive belongs in the repo. `.env` files, keys, certificates and model
 weights are all covered by `.gitignore`. In particular you will need your own:

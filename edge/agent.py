@@ -66,7 +66,7 @@ def run():
     remote = client.get_config()
     cameras = remote["cameras"]
     det = remote["detection"]
-    detector = build_detector(cfg.detector_mode)
+    detector = build_detector(cfg.detector_mode, det["confidence_threshold"])
 
     # Thread-safe outbound event buffer (retries if the cloud is unreachable).
     events, lock = [], threading.Lock()

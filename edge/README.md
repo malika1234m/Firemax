@@ -49,11 +49,13 @@ it understands. For a demo on a machine with no CCTV, point it at an ordinary
 http(s) `.mp4` and the agent treats it as a camera — it loops when the file
 ends. That needs no hardware and, unlike a webcam, works inside Docker.
 
-**3. Put two files on the machine:** the `docker-compose.yml` from this
-directory, and an `edge.env` next to it based on `.env.example`:
+**3. Put two files on the machine.** The quickest route is **Get Started → Run
+the edge agent** in the dashboard, which offers both as downloads already filled
+in for your deployment. To write them by hand, use the `docker-compose.yml` from
+this directory and an `edge.env` next to it:
 
 ```ini
-FIREMEX_CLOUD_URL=https://backend-production-0c43.up.railway.app
+FIREMEX_CLOUD_URL=https://firemex-backend.up.railway.app
 AGENT_TOKEN=<the token you just copied>
 DETECTOR_MODE=yolo
 MODEL_PATH=/app/models/fire_model.pt
@@ -81,8 +83,11 @@ docker compose up -d
 ```
 
 The site flips to **Online** in the FiremeX Sites page within ~10 seconds.
-Cameras added in the app are picked up on the agent's next config poll — no
-restart needed.
+
+> **Note:** the agent reads its camera list and detection settings **once, at
+> startup**. Adding a camera or changing the confidence threshold in the app
+> does not reach a running agent — restart it (`docker compose restart`) to
+> pick the change up.
 
 ## Modes
 
@@ -90,6 +95,26 @@ restart needed.
 |---|---|
 | `yolo` | Real detection. Downloads the weights on first run when `MODEL_URL` is set, verifies `MODEL_SHA256`, and caches them. |
 | `mock` | No ML at all — every loop runs but nothing is ever reported as a hazard. Use while first wiring up a site, or on low-power hardware during setup. |
+
+## Configuration reference
+
+Every setting is an environment variable, read from `edge.env`. The FiremeX
+dashboard generates a filled-in `edge.env` for you (**Get Started → Run the edge
+agent → Download**) with the cloud URL, image and model details already correct
+for your deployment — that page is the source of truth, so prefer it over
+copying values from here by hand.
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `FIREMEX_CLOUD_URL` | yes | `http://localhost:8000` | The control plane to report to. Must be `https://` anywhere real. |
+| `AGENT_TOKEN` | yes | — | Site enrollment token (Sites → Create Site). The agent exits at startup without it. |
+| `DETECTOR_MODE` | no | `yolo` | `yolo` = real detection; `mock` = no ML at all, never reports a hazard. |
+| `MODEL_PATH` | no | `models/fire_model.pt` | Where the weights live on this box. With the Compose file, a named volume so the download is cached. |
+| `MODEL_URL` | yes for `yolo` | — | Where to fetch the weights if `MODEL_PATH` is missing. Without it the agent stops rather than run blind. |
+| `MODEL_SHA256` | no | — | Pins the weights. Strongly recommended: a wrong or tampered model is a silent detection failure. |
+| `HEARTBEAT_INTERVAL` | no | `10` | Seconds between heartbeats. The site shows Online while these keep arriving. |
+| `WEBCAM_CAMERA_ID` | no | — | Feed one registered camera from this machine's webcam instead of its URL. Rarely works inside Docker on macOS/Windows. |
+| `WEBCAM_DEVICE` | no | `0` | Which local camera device to use. Note `0` may be an iPhone via Continuity Camera on a Mac. |
 
 ## Troubleshooting
 

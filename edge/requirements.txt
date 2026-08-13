@@ -4,6 +4,13 @@ websockets==13.1
 opencv-python-headless==4.9.0.80
 numpy==2.4.6
 
+# The shared detection package returns app.models.DetectionBox, a pydantic
+# model. Nothing else here pulls pydantic in transitively, so the agent image
+# needs it explicitly — without it the agent crash-loops on import after the
+# model has already downloaded and verified. Note this is pydantic ONLY:
+# pydantic-settings belongs to the cloud's configuration and must not ship here.
+pydantic==2.7.1
+
 # Needed only for DETECTOR_MODE=yolo (real detection). Mock mode / --selftest
 # do not require these.
 ultralytics==8.2.0

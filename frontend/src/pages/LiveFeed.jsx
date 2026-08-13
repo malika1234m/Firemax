@@ -55,7 +55,9 @@ export default function LiveFeed() {
 
   return (
     <div className="space-y-5 fade-up">
-      <PageHeader title="Live Feed" subtitle={`${cameras.length} cameras streaming${activeAlerts ? ` · ${activeAlerts} critical detection${activeAlerts !== 1 ? 's' : ''}` : ''}`}>
+      {/* "streaming" was a camera count, not a stream count — it claimed
+          cameras were streaming when no agent was running. */}
+      <PageHeader title="Live Feed" subtitle={`${cameras.length} camera${cameras.length !== 1 ? 's' : ''}${activeAlerts ? ` · ${activeAlerts} critical detection${activeAlerts !== 1 ? 's' : ''}` : ''}`}>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.07] rounded-lg p-1">
             <button onClick={() => setCols(2)}
@@ -110,9 +112,29 @@ export default function LiveFeed() {
   )
 }
 
+// How long a frame stays "live". The agent relays at ~5fps while watched, so
+// anything older than this means frames have stopped arriving.
+const FRAME_STALE_MS = 10_000
+
 function Tile({ camera, pinned, onTogglePin, onHazardChange }) {
   const { frame, connected } = useWebSocket(camera.camera_id)
-  const hazards   = frame?.detections?.filter(d => HAZARDS.has(d.label.toLowerCase())) ?? []
+
+  // Whether frames are ACTUALLY arriving — not whether the browser's socket to
+  // the cloud is open, and not whether the camera record is enabled. Both of
+  // those were previously reported as "Normal"/"Online" for a camera with no
+  // agent running at all, which is the wrong direction to be wrong in.
+  const [lastFrameAt, setLastFrameAt] = useState(null)
+  const [, tick] = useState(0)
+  useEffect(() => { if (frame?.frame_b64) setLastFrameAt(Date.now()) }, [frame])
+  useEffect(() => {
+    const id = setInterval(() => tick(t => t + 1), 2000)   // re-evaluate staleness
+    return () => clearInterval(id)
+  }, [])
+  const live = lastFrameAt !== null && Date.now() - lastFrameAt < FRAME_STALE_MS
+
+  // Detections belong to the frame they came with; once that frame is stale
+  // they are history, not a current hazard.
+  const hazards   = live ? (frame?.detections?.filter(d => HAZARDS.has(d.label.toLowerCase())) ?? []) : []
   const topHazard = hazards[0] ?? null
 
   useEffect(() => {
@@ -125,10 +147,16 @@ function Tile({ camera, pinned, onTogglePin, onHazardChange }) {
         ${topHazard ? 'border-hazard/60 hazard-border' : 'border-white/[0.07]'}`}>
 
         <div className="relative aspect-video bg-[#06080D] scanlines overflow-hidden">
-          {frame?.frame_b64
+          {/* Only render the frame while it is fresh. A frozen last frame is
+              indistinguishable from a live camera pointed at a quiet scene —
+              the most dangerous thing this page could show. */}
+          {live && frame?.frame_b64
             ? <img src={`data:image/jpeg;base64,${frame.frame_b64}`} className="w-full h-full object-cover" alt="" />
-            : <div className="w-full h-full flex items-center justify-center">
+            : <div className="w-full h-full flex flex-col items-center justify-center gap-1.5">
                 <span className="font-mono text-[10px] text-slate-700 tracking-[0.2em] uppercase">No Signal</span>
+                <span className="text-[10px] text-slate-700">
+                  {!connected ? 'Reconnecting…' : lastFrameAt ? 'Feed stopped' : 'No agent streaming this camera'}
+                </span>
               </div>
           }
 
@@ -138,8 +166,8 @@ function Tile({ camera, pinned, onTogglePin, onHazardChange }) {
 
           <div className="absolute top-2 right-2 flex items-center gap-1.5">
             <span className={`text-[10px] font-raj font-semibold px-2 py-0.5 rounded uppercase
-              ${topHazard ? 'bg-hazard text-white' : connected ? 'bg-safe/20 text-safe' : 'bg-slate-800 text-slate-500'}`}>
-              {topHazard ? 'Critical' : connected ? 'Normal' : 'Offline'}
+              ${topHazard ? 'bg-hazard text-white' : live ? 'bg-safe/20 text-safe' : 'bg-slate-800 text-slate-500'}`}>
+              {topHazard ? 'Critical' : live ? 'Live' : !connected ? 'Reconnecting' : 'No signal'}
             </span>
             <button onClick={() => onTogglePin(camera.camera_id)}
                     title={pinned ? 'Unpin' : 'Pin to top'}
@@ -163,9 +191,11 @@ function Tile({ camera, pinned, onTogglePin, onHazardChange }) {
         <p className="text-[11px] text-slate-600">Zone: {camera.zone}</p>
         <div className="flex items-center justify-between mt-1.5">
           <span className="font-mono text-[10px] text-slate-600">{camera.ip_address || '—'}</span>
-          <span className={`flex items-center gap-1 text-[10px] ${camera.enabled ? 'text-safe' : 'text-slate-600'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${camera.enabled ? 'bg-safe' : 'bg-slate-600'}`} />
-            {camera.enabled ? 'Online' : 'Offline'}
+          {/* This reflects the camera RECORD, not the stream — it used to read
+              "Online" for a camera nothing was watching. Named for what it is. */}
+          <span className={`flex items-center gap-1 text-[10px] ${camera.enabled ? 'text-slate-500' : 'text-slate-600'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${camera.enabled ? 'bg-slate-500' : 'bg-slate-700'}`} />
+            {camera.enabled ? 'Enabled' : 'Disabled'}
           </span>
         </div>
       </div>
