@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import {
   Camera, Server, Terminal, Home, Bell, Check, Copy, ArrowRight,
-  ChevronDown, CheckCircle2, ShieldCheck, Download, AlertTriangle,
+  ChevronDown, CheckCircle2, ShieldCheck, Download, AlertTriangle, Radio,
 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import { useSetupProgress } from '../hooks/useSetupProgress'
@@ -110,8 +110,71 @@ function Step({ index, total, icon: Icon, title, summary, done, active, optional
   )
 }
 
+function StatRow({ icon: Icon, label, value, tone = 'default', to }) {
+  const body = (
+    <div className="flex items-center gap-2.5 py-1.5">
+      <Icon size={13} className="text-slate-600 shrink-0" />
+      <span className="text-[11.5px] text-slate-500 flex-1 min-w-0 truncate">{label}</span>
+      <span className={`text-[11.5px] font-medium shrink-0 tabular-nums
+        ${tone === 'safe' ? 'text-safe' : tone === 'muted' ? 'text-slate-600' : 'text-slate-300'}`}>
+        {value}
+      </span>
+    </div>
+  )
+  return to
+    ? <Link to={to} className="block -mx-2 px-2 rounded hover:bg-white/[0.03] transition-colors">{body}</Link>
+    : body
+}
+
+/** Right-hand rail. Deliberately live data rather than decoration: during setup
+ *  the question in someone's head is "did that work?", and these are the exact
+ *  numbers that answer it without leaving the guide. */
+function SidePanel({ counts, agentOnline, haLinked }) {
+  return (
+    <aside className="hidden xl:block w-[248px] shrink-0">
+      <div className="sticky top-6 space-y-3">
+        <div className="glass-card border border-white/[0.07] rounded-xl p-4">
+          <p className="text-[10px] uppercase tracking-[0.08em] text-slate-600 font-semibold mb-1.5">Your setup</p>
+          <div className="divide-y divide-white/[0.04]">
+            <StatRow icon={Camera} label="Cameras" to="/cameras"
+                     value={counts.cameras} tone={counts.cameras ? 'default' : 'muted'} />
+            <StatRow icon={Server} label="Sites" to="/sites"
+                     value={counts.sites} tone={counts.sites ? 'default' : 'muted'} />
+            <StatRow icon={Radio} label="Edge agent"
+                     value={agentOnline ? 'Online' : 'Offline'} tone={agentOnline ? 'safe' : 'muted'} />
+            <StatRow icon={Bell} label="Alerts" to="/alerts"
+                     value={counts.alertsCapped ? `${counts.alerts}+` : counts.alerts}
+                     tone={counts.alerts ? 'default' : 'muted'} />
+            <StatRow icon={Home} label="Home Assistant" to="/settings/home-assistant"
+                     value={haLinked ? 'Linked' : 'Not set'} tone={haLinked ? 'safe' : 'muted'} />
+          </div>
+        </div>
+
+        <div className="glass-card border border-white/[0.07] rounded-xl p-4 space-y-2">
+          <p className="text-[10px] uppercase tracking-[0.08em] text-slate-600 font-semibold">Stuck?</p>
+          <p className="text-[11.5px] text-slate-500 leading-relaxed">
+            Run the self-test before anything else — it separates a connection problem from a
+            camera problem in one command.
+          </p>
+          <pre className="font-mono text-[10.5px] text-slate-400 bg-black/40 border border-white/[0.07] rounded-lg p-2 overflow-x-auto">docker compose run --rm agent{'\n'}  python agent.py --selftest</pre>
+          <Link to="/support" className="inline-flex items-center gap-1.5 text-[11.5px] text-brand hover:underline">
+            Contact support <ArrowRight size={11} />
+          </Link>
+        </div>
+
+        <div className="flex items-start gap-2 px-1">
+          <ShieldCheck size={13} className="text-slate-700 shrink-0 mt-0.5" />
+          <p className="text-[10.5px] text-slate-600 leading-relaxed">
+            Detection runs on your hardware. Only detections and a thumbnail are uploaded.
+          </p>
+        </div>
+      </div>
+    </aside>
+  )
+}
+
 export default function GetStarted() {
-  const { steps, doneCount, total, currentIndex, complete, haLinked, loading } = useSetupProgress()
+  const { steps, doneCount, total, currentIndex, complete, haLinked, counts, loading } = useSetupProgress()
 
   // `undefined` means "follow progress"; once the user clicks a row we respect
   // their choice instead of yanking the panel around under them on each poll.
@@ -163,7 +226,11 @@ volumes:
   agent_models:`
 
   return (
-    <div className="max-w-3xl space-y-5 fade-up">
+    // Two columns from xl up; below that the rail drops away entirely rather
+    // than squeezing the steps, since the guide is the thing that must stay
+    // readable on a laptop.
+    <div className="fade-up flex gap-6 items-start">
+      <div className="flex-1 min-w-0 max-w-3xl space-y-5">
       <PageHeader title="Get Started" subtitle="Four steps to a working fire-detection site" />
 
       {/* progress */}
@@ -298,6 +365,13 @@ volumes:
           when the connection returns.
         </p>
       </div>
+      </div>
+
+      <SidePanel
+        counts={counts}
+        agentOnline={Boolean(steps.find(s => s.id === 'agent')?.done)}
+        haLinked={haLinked}
+      />
     </div>
   )
 }

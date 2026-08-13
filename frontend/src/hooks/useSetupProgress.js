@@ -25,20 +25,38 @@ export const SETUP_STEPS = [
 export function useSetupProgress({ pollMs = 15000 } = {}) {
   const [state, setState] = useState({
     loading: true, camera: false, site: false, agent: false, alert: false, ha: false,
+    counts: { cameras: 0, sites: 0, sitesOnline: 0, alerts: 0, alertsCapped: false },
   })
+
+  // Alerts are fetched as a page, not a count — there is no count endpoint. The
+  // cap is surfaced (alertsCapped) so the UI can render "50+" instead of
+  // claiming a precise number it doesn't have.
+  const ALERT_PAGE = 50
 
   const load = useCallback(async () => {
     const get = (path) => apiFetch(path).then(r => (r.ok ? r.json() : null)).catch(() => null)
     const [cameras, sites, alerts, ha] = await Promise.all([
-      get('/cameras/'), get('/sites/'), get('/alerts/?limit=1'), get('/ha/config'),
+      get('/cameras/'), get('/sites/'), get(`/alerts/?limit=${ALERT_PAGE}`), get('/ha/config'),
     ])
+    const cameraList = Array.isArray(cameras) ? cameras : []
+    const siteList   = Array.isArray(sites)   ? sites   : []
+    const alertList  = Array.isArray(alerts)  ? alerts  : []
+    const online     = siteList.filter(s => s.status === 'online')
+
     setState({
       loading: false,
-      camera: Array.isArray(cameras) && cameras.length > 0,
-      site:   Array.isArray(sites)   && sites.length   > 0,
-      agent:  Array.isArray(sites)   && sites.some(s => s.status === 'online'),
-      alert:  Array.isArray(alerts)  && alerts.length  > 0,
+      camera: cameraList.length > 0,
+      site:   siteList.length   > 0,
+      agent:  online.length     > 0,
+      alert:  alertList.length  > 0,
       ha:     Boolean(ha?.ha_url),
+      counts: {
+        cameras: cameraList.length,
+        sites: siteList.length,
+        sitesOnline: online.length,
+        alerts: alertList.length,
+        alertsCapped: alertList.length >= ALERT_PAGE,
+      },
     })
   }, [])
 
@@ -66,6 +84,7 @@ export function useSetupProgress({ pollMs = 15000 } = {}) {
     currentIndex,                       // -1 once everything is done
     complete: currentIndex === -1,
     haLinked: state.ha,
+    counts: state.counts,
     refresh: load,
   }
 }

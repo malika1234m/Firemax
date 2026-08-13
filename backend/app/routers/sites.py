@@ -12,10 +12,11 @@ async def agent_install_config(_admin: UserPublic = Depends(require_admin)):
     """What an admin needs to stand up an edge agent: which image to run and
     which weights it should fetch.
 
-    Single source of truth on purpose. These values previously appeared in the
-    dashboard's setup guide AND in edge/.env.example, so republishing the model
-    meant remembering both — and forgetting one leaves customers pulling stale
-    weights with nothing failing to warn them.
+    Single source of truth on purpose. These values used to be hardcoded in the
+    dashboard's setup guide and repeated in an edge example env file, so
+    republishing the model meant remembering both — and forgetting one leaves
+    customers pulling stale weights with nothing failing to warn them. Changing
+    AGENT_MODEL_URL here is now the whole job.
 
     `model_configured` lets the UI say "ask FiremeX for the weights URL" instead
     of silently emitting a config that cannot start.
