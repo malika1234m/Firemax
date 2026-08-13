@@ -14,12 +14,16 @@ const RISK_STYLES = {
 export default function Dashboard() {
   const [cameras, setCameras] = useState([])
   const [alerts,  setAlerts]  = useState([])
+  const [health,  setHealth]  = useState(null)
   const [time,    setTime]    = useState(new Date())
 
   useEffect(() => {
     const load = () => {
       apiFetch('/cameras/').then(r => r.json()).then(setCameras).catch(() => {})
       apiFetch('/alerts/?limit=20').then(r => r.json()).then(setAlerts).catch(() => {})
+      // Real liveness from agent heartbeats. Counting `enabled` cameras here
+      // told a customer with no agent running that every camera was reporting.
+      apiFetch('/cameras/health').then(r => r.ok ? r.json() : null).then(setHealth).catch(() => {})
     }
     load()
     const id = setInterval(load, 15_000)
@@ -31,8 +35,19 @@ export default function Dashboard() {
     return () => clearInterval(tick)
   }, [])
 
-  const online       = cameras.filter(c => c.enabled).length
-  const offlineCam   = cameras.find(c => !c.enabled)
+  const online       = health ? health.online : 0
+  const offlineCams  = cameras.filter(c => !health?.cameras?.[c.camera_id]?.online)
+  const offlineCam   = offlineCams[0] ?? null
+
+  // Distinguishes "an agent is running and a camera is down" from "nothing is
+  // watching anything", which are very different situations for an operator.
+  const anythingReporting = Boolean(health && health.online > 0)
+  const cameraStatusText =
+    cameras.length === 0            ? 'No cameras added yet'
+    : !anythingReporting            ? 'No agent reporting — detection is not running'
+    : offlineCams.length === 0      ? 'All cameras reporting'
+    : offlineCams.length === 1      ? `1 camera not reporting — ${offlineCam.name}`
+    :                                 `${offlineCams.length} cameras not reporting`
   const activeAlerts = alerts.filter(a => a.status !== 'resolved')
   const unacked      = activeAlerts.filter(a => !a.acknowledged)
   const zonesAffected = new Set(activeAlerts.map(a => a.zone)).size
@@ -70,8 +85,8 @@ export default function Dashboard() {
           <p className="font-raj font-bold text-[26px] leading-none text-white">
             {online}<span className="text-slate-600 text-lg font-medium">/{cameras.length}</span>
           </p>
-          <p className={`text-[11px] mt-2 ${offlineCam ? 'text-hazard' : 'text-slate-600'}`}>
-            {offlineCam ? `1 camera offline — ${offlineCam.name}` : 'All cameras reporting'}
+          <p className={`text-[11px] mt-2 ${cameras.length && !offlineCams.length ? 'text-slate-600' : 'text-hazard'}`}>
+            {cameraStatusText}
           </p>
         </div>
 

@@ -259,8 +259,8 @@ volumes:
 
       <p className="text-[12px] text-slate-500 leading-relaxed">
         FiremeX runs detection on <span className="text-slate-300">your own hardware</span>. A small program —
-        the edge agent — watches your cameras on your network and sends only detections here.
-        Your video never leaves your site.
+        the edge agent — watches your cameras on your network and sends only detections and a thumbnail
+        here. Live video leaves your site only while you're watching a camera, and is never stored.
       </p>
 
       <div className="space-y-3">

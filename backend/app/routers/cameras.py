@@ -4,6 +4,7 @@ from app.plans import get_plan_limits
 from app.database import get_db
 from app.security import get_current_user, require_admin
 from app.net_guard import assert_safe_target, UnsafeTargetError
+from app.health import camera_health
 import asyncio
 import socket
 
@@ -21,6 +22,42 @@ async def list_cameras(user: UserPublic = Depends(get_current_user)):
     db = get_db()
     cameras = await db.cameras.find({"org_id": user.org_id}).to_list(100)
     return [Camera(**c) for c in cameras]
+
+
+@router.get("/health")
+async def cameras_health(user: UserPublic = Depends(get_current_user)):
+    """Which of this org's cameras are actually being watched right now.
+
+    `camera.enabled` says only that an operator switched a camera on; it says
+    nothing about whether any agent is running. The dashboard previously
+    counted enabled cameras as "online" and told a brand-new customer with no
+    agent at all that every camera was reporting.
+
+    Returns one entry per camera, so callers can render an honest state for
+    cameras no agent has ever mentioned.
+    """
+    db = get_db()
+    health = await camera_health(db, user.org_id)
+    cameras = await db.cameras.find({"org_id": user.org_id}, {"camera_id": 1, "enabled": 1}).to_list(500)
+
+    out = {}
+    for cam in cameras:
+        h = health.get(cam["camera_id"])
+        out[cam["camera_id"]] = {
+            "online": bool(h and h["online"]),
+            "enabled": cam.get("enabled", True),
+            "fps": h["fps"] if h else 0,
+            "inference_ms": h["inference_ms"] if h else 0,
+            # None means no agent has ever reported this camera, which reads
+            # differently from "an agent reported it as down".
+            "last_frame_age_s": h["last_frame_age_s"] if h else None,
+            "reported": h is not None,
+        }
+    return {
+        "cameras": out,
+        "online": sum(1 for c in out.values() if c["online"]),
+        "total": len(out),
+    }
 
 
 @router.get("/zones")

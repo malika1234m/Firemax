@@ -81,25 +81,16 @@ def run():
     def on_frame(camera_id, frame_b64, fps):
         relay.send_frame(camera_id, frame_b64, fps)
 
-    pipelines = []
-    for cam in cameras:
-        # Local-webcam testing: feed the chosen camera from the webcam device.
-        if cfg.webcam_camera_id and cam["camera_id"] == cfg.webcam_camera_id:
-            cam = {**cam, "stream_url": cfg.webcam_device}   # int → OpenCV opens the local camera
-            logger.info(f"using local webcam (device {cfg.webcam_device}) for '{cam['name']}'")
-        p = EdgePipeline(cam, detector, on_event, det["confidence_threshold"], det["alert_cooldown_seconds"],
-                         on_frame=on_frame)
-        p.start()
-        pipelines.append(p)
-        by_id[p.camera_id] = p
+    _reconcile(remote, by_id, cfg, detector, on_event, on_frame, EdgePipeline)
     relay.start()
-    logger.info(f"watching {len(pipelines)} camera(s); live relay active")
+    logger.info(f"watching {len(by_id)} camera(s); live relay active")
 
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
     last_heartbeat = 0.0
+    last_config = time.time()          # config was just fetched above
     while not stop.is_set():
         now = time.time()
         # flush buffered events
@@ -112,14 +103,98 @@ def run():
                     events[:0] = batch
         # heartbeat on interval
         if now - last_heartbeat >= cfg.heartbeat_interval:
-            client.post_heartbeat(AGENT_VERSION, [p.health() for p in pipelines])
+            client.post_heartbeat(AGENT_VERSION, [p.health() for p in by_id.values()])
             last_heartbeat = now
+        # re-read the camera list and detection tuning on interval, so changes
+        # made in the app reach a running agent without a restart
+        if now - last_config >= cfg.config_poll_interval:
+            last_config = now
+            try:
+                _reconcile(client.get_config(), by_id, cfg, detector, on_event, on_frame, EdgePipeline)
+            except Exception as exc:
+                # A failed poll must never tear down a working agent — keep the
+                # current configuration and try again next interval.
+                logger.warning(f"config poll failed, keeping current cameras: {exc}")
         stop.wait(1.0)
 
     logger.info("shutting down…")
     relay.stop()
-    for p in pipelines:
+    for p in by_id.values():
         p.stop()
+
+
+def _stream_url_for(cam: dict, cfg) -> object:
+    """The URL this camera should actually be read from. Local-webcam testing
+    substitutes a device index for the configured URL."""
+    if cfg.webcam_camera_id and cam["camera_id"] == cfg.webcam_camera_id:
+        return cfg.webcam_device            # int → OpenCV opens the local camera
+    return cam["stream_url"]
+
+
+def _reconcile(remote: dict, by_id: dict, cfg, detector, on_event, on_frame, EdgePipeline):
+    """Make the running pipelines match what the cloud says they should be.
+
+    The agent used to read its camera list once at startup, so adding,
+    disabling or deleting a camera in the app did nothing until someone
+    restarted the container — and an agent went on watching cameras that had
+    been deleted. This is called on an interval so the app is the live source
+    of truth.
+
+    Only what actually changed is touched: an unaffected camera's pipeline is
+    never restarted, because restarting drops the optical-flow branch's
+    previous-frame state and re-opens the stream for no reason.
+    """
+    det = remote["detection"]
+    wanted = {c["camera_id"]: c for c in remote["cameras"]}
+
+    # Gone from the config (deleted, disabled, or moved to another org).
+    for camera_id in list(by_id):
+        if camera_id not in wanted:
+            pipeline = by_id.pop(camera_id)
+            pipeline.stop()
+            logger.info(f"camera removed: {pipeline.camera_name}")
+
+    for camera_id, cam in wanted.items():
+        existing = by_id.get(camera_id)
+        desired_url = _stream_url_for(cam, cfg)
+
+        if existing is None:
+            if cfg.webcam_camera_id == camera_id:
+                logger.info(f"using local webcam (device {cfg.webcam_device}) for '{cam['name']}'")
+            pipeline = EdgePipeline(
+                {**cam, "stream_url": desired_url}, detector, on_event,
+                det["confidence_threshold"], det["alert_cooldown_seconds"], on_frame=on_frame,
+            )
+            pipeline.start()
+            by_id[camera_id] = pipeline
+            logger.info(f"camera added: {cam['name']}")
+
+        elif existing.stream_url != desired_url:
+            # The stream itself changed, so the reader has to be rebuilt.
+            was_streaming = existing.streaming
+            existing.stop()
+            pipeline = EdgePipeline(
+                {**cam, "stream_url": desired_url}, detector, on_event,
+                det["confidence_threshold"], det["alert_cooldown_seconds"], on_frame=on_frame,
+            )
+            pipeline.streaming = was_streaming      # don't drop a viewer mid-watch
+            pipeline.start()
+            by_id[camera_id] = pipeline
+            logger.info(f"camera stream changed: {cam['name']}")
+
+        elif (existing.confidence_threshold != det["confidence_threshold"]
+              or existing.cooldown_seconds != det["alert_cooldown_seconds"]):
+            # Tuning applies live — no need to disturb the stream.
+            existing.confidence_threshold = det["confidence_threshold"]
+            existing.cooldown_seconds = det["alert_cooldown_seconds"]
+            logger.info(
+                f"detection settings updated: threshold={det['confidence_threshold']} "
+                f"cooldown={det['alert_cooldown_seconds']}s"
+            )
+
+    # The detector filters YOLO boxes by the same org-level threshold.
+    if getattr(detector, "threshold", None) is not None:
+        detector.threshold = det["confidence_threshold"]
 
 
 def _set_streaming(by_id: dict, kind: str, camera_id: str):

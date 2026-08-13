@@ -6,8 +6,9 @@ from app.config import settings
 from app.database import get_db
 from app.models import (
     LoginRequest, PlanUpdate, ComplaintUpdate, TenantPlanUpdate,
-    effective_site_status, SITE_OFFLINE_AFTER_SECONDS,
+    SITE_OFFLINE_AFTER_SECONDS,
 )
+from app.health import camera_health
 from app.security import (
     verify_password, create_platform_token, require_platform_admin,
     PLATFORM_COOKIE_NAME,
@@ -20,22 +21,9 @@ from fastapi import HTTPException
 
 
 async def _agent_pipeline_health(db) -> dict:
-    """Per-camera pipeline health aggregated from edge-agent heartbeats
-    (detection runs at the edge now, not in the cloud). Keyed by camera_id."""
-    out = {}
-    async for site in db.sites.find({}, {"org_id": 1, "status": 1, "last_seen_at": 1, "pipeline_health": 1}):
-        # Derived, not the stored flag — a dead agent's last reported pipeline
-        # health would otherwise be presented as current.
-        site_online = effective_site_status(site) == "online"
-        for p in site.get("pipeline_health", []) or []:
-            out[p["camera_id"]] = {
-                "org_id": site["org_id"],
-                "fps": p.get("fps", 0),
-                "inference_ms": p.get("inference_ms", 0),
-                "last_frame_age_s": p.get("last_frame_age_s"),
-                "online": bool(p.get("online")) and site_online,
-            }
-    return out
+    """Cross-tenant per-camera health. Shares one implementation with the
+    customer-facing /cameras/health so the two can never disagree."""
+    return await camera_health(db)
 
 # NOTE: this whole router is the vendor/ops console. It is cross-tenant by
 # design and must only ever be reachable by a platform super-admin — never a

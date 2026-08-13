@@ -16,6 +16,10 @@ class AgentConfig:
     token = os.environ.get("AGENT_TOKEN", "")
     # Seconds between heartbeats to the cloud.
     heartbeat_interval = int(os.environ.get("HEARTBEAT_INTERVAL", "10"))
+    # Seconds between re-reading the camera list and detection tuning. Without
+    # this the agent only ever saw the configuration it started with, so adding,
+    # disabling or deleting a camera in the app required a container restart.
+    config_poll_interval = int(os.environ.get("CONFIG_POLL_INTERVAL", "30"))
     # "yolo" runs the real detection model; "mock" runs without any ML deps
     # (useful for wiring/tests and low-power boxes during setup).
     detector_mode = os.environ.get("DETECTOR_MODE", "yolo").lower()

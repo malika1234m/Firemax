@@ -134,3 +134,36 @@ async def test_cannot_delete_another_orgs_site(client, client2):
     await signup(client2, org_name="Org B", email="b@firemex.io")
     sid, _ = await _create_site(client)
     assert (await client2.delete(f"/sites/{sid}")).status_code == 404
+
+
+# ── Camera liveness ──────────────────────────────────────────────────────────
+
+async def test_camera_health_is_not_derived_from_enabled(client):
+    """A camera can be enabled for months with no agent anywhere. The dashboard
+    used to count `enabled` cameras as online and tell a customer with nothing
+    running that all cameras were reporting."""
+    await signup(client)
+    cam = (await client.post("/cameras/", json={"name": "Bay", "stream_url": "rtsp://10.0.0.9"})).json()
+
+    health = (await client.get("/cameras/health")).json()
+    entry = health["cameras"][cam["camera_id"]]
+    assert entry["enabled"] is True          # operator switched it on …
+    assert entry["online"] is False          # … but nothing is watching it
+    assert entry["reported"] is False        # no agent has ever mentioned it
+    assert health["online"] == 0
+
+
+async def test_camera_health_reflects_agent_heartbeat(client):
+    await signup(client)
+    cam = (await client.post("/cameras/", json={"name": "Bay", "stream_url": "rtsp://10.0.0.9"})).json()
+    _, token = await _create_site(client)
+
+    await client.post("/agent/heartbeat", headers=AGENT(token), json={
+        "agent_version": "0.1.0",
+        "pipelines": [{"camera_id": cam["camera_id"], "fps": 4.2, "inference_ms": 120, "online": True}],
+    })
+
+    health = (await client.get("/cameras/health")).json()
+    entry = health["cameras"][cam["camera_id"]]
+    assert entry["online"] is True and entry["reported"] is True and entry["fps"] == 4.2
+    assert health["online"] == 1

@@ -15,6 +15,7 @@ export default function Cameras() {
   const { toast } = useToast()
   const confirm = useConfirm()
   const [cameras, setCameras] = useState([])
+  const [health,  setHealth]  = useState(null)
   const [zones,   setZones]   = useState([])
   const [form,    setForm]    = useState(EMPTY_FORM)
   const [error,   setError]   = useState('')
@@ -22,7 +23,12 @@ export default function Cameras() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
 
-  const load = () => apiFetch('/cameras/').then(r => r.json()).then(setCameras).catch(() => {})
+  const load = () => {
+    apiFetch('/cameras/').then(r => r.json()).then(setCameras).catch(() => {})
+    // Liveness comes from agent heartbeats, not from `enabled` — see
+    // GET /cameras/health.
+    apiFetch('/cameras/health').then(r => r.ok ? r.json() : null).then(setHealth).catch(() => {})
+  }
   useEffect(() => {
     load()
     apiFetch('/cameras/zones').then(r => r.json()).then(zs => {
@@ -212,9 +218,18 @@ export default function Cameras() {
                         <MapPin size={10} /> {cam.zone}
                       </p>
                     </div>
-                    <span className={`flex items-center gap-1 text-[10px] font-medium shrink-0 ${cam.enabled ? 'text-safe' : 'text-slate-600'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${cam.enabled ? 'bg-safe' : 'bg-slate-600'}`} />
-                      {cam.enabled ? 'Online' : 'Offline'}
+                    {/* Two independent facts: whether an operator switched the
+                        camera on, and whether an agent is actually watching it.
+                        Showing "Online" for the former was misleading. */}
+                    <span className="flex items-center gap-2 shrink-0">
+                      {!cam.enabled && (
+                        <span className="text-[10px] text-slate-600">Disabled</span>
+                      )}
+                      <span className={`flex items-center gap-1 text-[10px] font-medium
+                        ${health?.cameras?.[cam.camera_id]?.online ? 'text-safe' : 'text-slate-600'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${health?.cameras?.[cam.camera_id]?.online ? 'bg-safe' : 'bg-slate-600'}`} />
+                        {health?.cameras?.[cam.camera_id]?.online ? 'Live' : 'Not reporting'}
+                      </span>
                     </span>
                   </div>
                   <p className="font-mono text-[10px] text-slate-700 truncate">

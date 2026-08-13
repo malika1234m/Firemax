@@ -73,7 +73,8 @@ export default function Sites() {
 
       <p className="text-[12px] text-slate-500 -mt-2 max-w-2xl">
         Each site runs a FiremeX <span className="text-slate-300">edge agent</span> on your local network — it reads your cameras,
-        runs detection on your hardware, and reports events here. Camera video never leaves your site.
+        runs detection on your hardware, and reports events here. Only detections and a thumbnail are
+        uploaded; live video leaves your site only while you have a camera's feed open, and is never stored.
       </p>
 
       {/* create */}

@@ -84,10 +84,10 @@ docker compose up -d
 
 The site flips to **Online** in the FiremeX Sites page within ~10 seconds.
 
-> **Note:** the agent reads its camera list and detection settings **once, at
-> startup**. Adding a camera or changing the confidence threshold in the app
-> does not reach a running agent — restart it (`docker compose restart`) to
-> pick the change up.
+Cameras added, disabled or deleted in the app are picked up automatically — the
+agent re-reads its camera list and detection tuning every `CONFIG_POLL_INTERVAL`
+seconds (default 30), so no restart is needed. Only the camera that actually
+changed is affected; the others keep streaming uninterrupted.
 
 ## Modes
 
@@ -95,6 +95,39 @@ The site flips to **Online** in the FiremeX Sites page within ~10 seconds.
 |---|---|
 | `yolo` | Real detection. Downloads the weights on first run when `MODEL_URL` is set, verifies `MODEL_SHA256`, and caches them. |
 | `mock` | No ML at all — every loop runs but nothing is ever reported as a hazard. Use while first wiring up a site, or on low-power hardware during setup. |
+
+## Using a laptop webcam as a camera
+
+Docker Desktop on macOS and Windows cannot pass a host camera into a container,
+so `WEBCAM_DEVICE` only works when the agent runs directly on the machine, not
+under Compose. Rather than get the camera into the container, put it on the
+network — `webcam_server.py` serves it as MJPEG, which the agent opens like any
+other camera.
+
+On the machine with the webcam:
+
+```bash
+pip install opencv-python          # no ML stack needed
+python webcam_server.py            # add --device 1 to pick a different camera
+```
+
+It prints the URL to use. Then add a camera in FiremeX with:
+
+| Agent runs… | `stream_url` |
+|---|---|
+| in Docker on the **same** machine | `http://host.docker.internal:8080/` |
+| on **another** machine on the LAN | `http://<that machine's LAN IP>:8080/` |
+
+`http://localhost:8080/` will **not** work: inside a container localhost is the
+container itself, and the API rejects loopback targets anyway (see net_guard.py
+— loopback and link-local are the classic SSRF targets).
+
+Run `python webcam_server.py --list` if you're unsure which camera index to use.
+On a Mac, index 0 is frequently an iPhone via Continuity Camera rather than the
+built-in webcam.
+
+Remember the agent reads its camera list at startup, so `docker compose restart`
+after adding the camera.
 
 ## Configuration reference
 
@@ -113,6 +146,7 @@ copying values from here by hand.
 | `MODEL_URL` | yes for `yolo` | — | Where to fetch the weights if `MODEL_PATH` is missing. Without it the agent stops rather than run blind. |
 | `MODEL_SHA256` | no | — | Pins the weights. Strongly recommended: a wrong or tampered model is a silent detection failure. |
 | `HEARTBEAT_INTERVAL` | no | `10` | Seconds between heartbeats. The site shows Online while these keep arriving. |
+| `CONFIG_POLL_INTERVAL` | no | `30` | Seconds between re-reading the camera list and detection tuning, so app changes reach a running agent without a restart. |
 | `WEBCAM_CAMERA_ID` | no | — | Feed one registered camera from this machine's webcam instead of its URL. Rarely works inside Docker on macOS/Windows. |
 | `WEBCAM_DEVICE` | no | `0` | Which local camera device to use. Note `0` may be an iPhone via Continuity Camera on a Mac. |
 
