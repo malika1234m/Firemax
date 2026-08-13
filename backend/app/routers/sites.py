@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.config import settings
-from app.models import Site, SiteCreate, SitePublic, UserPublic
+from app.models import Site, SiteCreate, SitePublic, UserPublic, effective_site_status
 from app.database import get_db
 from app.security import require_admin, generate_agent_token, hash_agent_token
 
@@ -33,7 +33,9 @@ async def agent_install_config(_admin: UserPublic = Depends(require_admin)):
 async def list_sites(admin: UserPublic = Depends(require_admin)):
     db = get_db()
     sites = await db.sites.find({"org_id": admin.org_id}).sort("created_at", 1).to_list(200)
-    return [SitePublic(**s) for s in sites]
+    # Status is computed from the last heartbeat, never read from the stored
+    # flag — see effective_site_status.
+    return [SitePublic(**{**s, "status": effective_site_status(s)}) for s in sites]
 
 
 @router.post("/")

@@ -134,7 +134,13 @@ async def health():
 
     online_sites = 0
     if db_connected:
-        online_sites = await get_db().sites.count_documents({"status": "online"})
+        # By recent heartbeat — the stored "online" flag is set on heartbeat and
+        # never cleared, so counting it would report dead agents as healthy.
+        from datetime import datetime, timedelta
+        from app.models import SITE_OFFLINE_AFTER_SECONDS
+        online_sites = await get_db().sites.count_documents({
+            "last_seen_at": {"$gte": datetime.utcnow() - timedelta(seconds=SITE_OFFLINE_AFTER_SECONDS)}
+        })
 
     return {
         "status": "ok" if db_connected else "degraded",

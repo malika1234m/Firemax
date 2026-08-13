@@ -274,6 +274,30 @@ class PlatformAdmin(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+# A site is "online" only while heartbeats keep arriving. The agent sends one
+# every HEARTBEAT_INTERVAL seconds (default 10), so this allows several to be
+# missed before declaring it down — long enough to ride out a blip, short
+# enough that an operator isn't looking at a stale green dot.
+SITE_OFFLINE_AFTER_SECONDS = 45
+
+
+def effective_site_status(site: dict) -> str:
+    """Status derived from last_seen_at, not from the stored flag.
+
+    The stored flag is written "online" by the heartbeat and NOTHING ever writes
+    it back — so a site whose agent died stayed Online indefinitely. In a
+    life-safety product that is the worst possible direction to be wrong in: the
+    dashboard tells an operator a building is monitored when nothing is running.
+
+    Derivation is used rather than a background sweeper because it cannot drift,
+    needs no scheduler, and is correct the instant it is read.
+    """
+    if not site.get("last_seen_at"):
+        return "pending"          # enrolled but no agent has ever connected
+    age = (datetime.utcnow() - site["last_seen_at"]).total_seconds()
+    return "online" if age <= SITE_OFFLINE_AFTER_SECONDS else "offline"
+
+
 class Site(BaseModel):
     """A physical customer site running an edge agent. The agent reads local
     cameras, runs detection on the customer's own hardware, and reports events

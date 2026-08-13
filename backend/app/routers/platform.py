@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.config import settings
 from app.database import get_db
-from app.models import LoginRequest, PlanUpdate, ComplaintUpdate, TenantPlanUpdate
+from app.models import (
+    LoginRequest, PlanUpdate, ComplaintUpdate, TenantPlanUpdate,
+    effective_site_status, SITE_OFFLINE_AFTER_SECONDS,
+)
 from app.security import (
     verify_password, create_platform_token, require_platform_admin,
     PLATFORM_COOKIE_NAME,
@@ -20,8 +23,10 @@ async def _agent_pipeline_health(db) -> dict:
     """Per-camera pipeline health aggregated from edge-agent heartbeats
     (detection runs at the edge now, not in the cloud). Keyed by camera_id."""
     out = {}
-    async for site in db.sites.find({}, {"org_id": 1, "status": 1, "pipeline_health": 1}):
-        site_online = site.get("status") == "online"
+    async for site in db.sites.find({}, {"org_id": 1, "status": 1, "last_seen_at": 1, "pipeline_health": 1}):
+        # Derived, not the stored flag — a dead agent's last reported pipeline
+        # health would otherwise be presented as current.
+        site_online = effective_site_status(site) == "online"
         for p in site.get("pipeline_health", []) or []:
             out[p["camera_id"]] = {
                 "org_id": site["org_id"],
@@ -97,7 +102,10 @@ async def platform_overview(_admin: dict = Depends(require_platform_admin)):
     alerts_24h = await db.alerts.count_documents({"timestamp": {"$gte": since}})
     unconfirmed = await db.alerts.count_documents({"promoted_to_incident": {"$ne": True}})
     sites_total = await db.sites.count_documents({})
-    sites_online = await db.sites.count_documents({"status": "online"})
+    # Counted by recent heartbeat, not the stored flag, which is never cleared.
+    sites_online = await db.sites.count_documents({
+        "last_seen_at": {"$gte": datetime.utcnow() - timedelta(seconds=SITE_OFFLINE_AFTER_SECONDS)}
+    })
 
     status = "operational" if db_connected else "degraded"
 

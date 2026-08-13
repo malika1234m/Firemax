@@ -31,7 +31,12 @@ function CopyButton({ text }) {
  *  fails in a way that looks like a Docker problem, not a naming one). */
 function DownloadButton({ text, filename }) {
   const save = () => {
-    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }))
+    // application/octet-stream, NOT text/plain. Chrome appends an extension
+    // when the filename's own extension doesn't match the MIME type, so
+    // text/plain saved "edge.env" as "edge.env.txt" — and Finder hides known
+    // extensions, so the file *looked* correct while Docker reported it
+    // missing. An opaque type leaves the filename alone.
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/octet-stream' }))
     const a = document.createElement('a')
     a.href = url
     a.download = filename
