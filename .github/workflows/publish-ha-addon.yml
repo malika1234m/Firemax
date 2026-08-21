@@ -1,0 +1,76 @@
+# Builds and publishes the fully-local Home Assistant add-on image.
+#
+# Separate from publish-agent.yml on purpose: that image is the cloud-connected
+# site agent, this one is the standalone Home Assistant add-on. They share the
+# detection code but are different products with different release cadences.
+#
+# The Dockerfile needs the repo ROOT as its build context — it reuses both
+# backend/app/detection/ and edge/ rather than carrying a second copy of the
+# detection logic.
+#
+# Published to: ghcr.io/<owner>/firemex-ha
+
+name: Publish Home Assistant add-on
+
+on:
+  push:
+    tags: ["ha-v*"]
+    branches: [main]
+    paths:
+      - "ha_agent/**"
+      - "edge/pipeline.py"
+      - "backend/app/detection/**"
+      - "addon/firemex-local/**"
+      - ".github/workflows/publish-ha-addon.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/firemex-ha
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Home Assistant add-ons run on amd64 and aarch64 — matching the `arch`
+      # list in addon/firemex-local/config.yaml. A Home Assistant Green or a
+      # Raspberry Pi is aarch64; an Intel NUC or VM is amd64.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # The add-on's `version:` must match a published tag, so an ha-v1.0.0
+          # tag produces the 1.0.0 image that config.yaml pulls.
+          tags: |
+            type=match,pattern=ha-v(.*),group=1
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .                      # repo root — the Dockerfile needs it
+          file: ha_agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

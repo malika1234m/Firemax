@@ -1,0 +1,10 @@
+# Home Assistant add-on repository manifest.
+#
+# Customers add this repository to Home Assistant once:
+#   Settings -> Add-ons -> Add-on Store -> ⋮ -> Repositories
+#   https://github.com/malika1234m/Firemax
+#
+# Home Assistant then lists every add-on directory beside this file.
+name: FiremeX
+url: https://github.com/malika1234m/Firemax
+maintainer: FiremeX <malikanishnatha4@gmail.com>

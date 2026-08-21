@@ -34,6 +34,25 @@ A machine that stays on, on the same LAN as the cameras — a mini PC, a NUC, a
 Raspberry Pi 4/5, or a VM on an existing server — with Docker installed and a
 network route to the cameras. For real detection, 4 GB RAM is a sensible floor.
 
+## Two ways to install
+
+Both routes run the **same published image** and the same agent — pick whichever
+matches the machine.
+
+| | Docker Compose | Home Assistant add-on |
+|---|---|---|
+| Where | any machine with Docker | Home Assistant **OS** or **Supervised** only |
+| Configured by | `edge.env` | the add-on's Configuration tab |
+| Install | copy two files, `docker compose up -d` | add the repository, click Install |
+| Docs | this file | [`addon/firemex/DOCS.md`](../addon/firemex/DOCS.md) |
+
+Home Assistant **Container** has no Supervisor and therefore no add-on support
+at all — those users take the Compose route below.
+
+The single image serves both because `edge/ha_entrypoint.py` translates an
+add-on's `/data/options.json` into the same environment variables `config.py`
+reads, and is a passthrough when that file is absent.
+
 ## Install
 
 **1. Create a Site in FiremeX.** Sign in as an admin → **Sites → Create Site**.
@@ -41,8 +60,9 @@ Copy the enrollment token — it is shown **once**. (Lost it? Use *Rotate token*
 on that site. Rotating kills the old token immediately.)
 
 **2. Add at least one camera.** **Cameras → Add Camera.** The agent only
-watches cameras registered in the app, and it reads the list once at startup —
-add cameras before starting it, or restart the agent afterwards.
+watches cameras registered in the app. It re-reads that list every
+`CONFIG_POLL_INTERVAL` seconds (default 30), so cameras added, disabled or
+deleted later are picked up without restarting the agent.
 
 `stream_url` is normally `rtsp://…`, but OpenCV opens **any** URL or file path
 it understands. For a demo on a machine with no CCTV, point it at an ordinary

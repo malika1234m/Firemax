@@ -19,4 +19,8 @@ COPY backend/app/ ./app/
 ENV DETECTOR_MODE=yolo \
     MODEL_PATH=models/fire_model.pt
 
-CMD ["python", "agent.py"]
+# ha_entrypoint.py translates a Home Assistant add-on's /data/options.json
+# into the environment variables config.py reads, then runs agent.py. With
+# no options file present (an ordinary docker compose install) it is a
+# passthrough, so ONE image serves both delivery routes.
+CMD ["python", "ha_entrypoint.py"]

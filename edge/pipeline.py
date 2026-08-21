@@ -60,7 +60,8 @@ def annotate(frame, detections):
 
 class EdgePipeline:
     def __init__(self, camera: dict, detector, on_event, confidence_threshold: float, cooldown_seconds: int,
-                 on_frame=None, live_fps: float = 5.0):
+                 on_frame=None, live_fps: float = 5.0, reader_factory=None,
+                 process_fps: float | None = None):
         self.camera_id = camera["camera_id"]
         self.camera_name = camera["name"]
         self.zone = camera.get("zone", "Unassigned")
@@ -75,10 +76,30 @@ class EdgePipeline:
         self._live_interval = 1.0 / live_fps
         self._last_streamed = 0.0
 
-        # StreamReader (OpenCV) imported lazily so self-test / mock paths don't
-        # need cv2 or the shared package.
-        from app.detection.stream import StreamReader
-        self.reader = StreamReader(self.stream_url)
+        # How often detection runs. None keeps the original behaviour: run as
+        # fast as inference allows, which is right on dedicated site hardware.
+        # The Home Assistant add-on sets it, because there FiremeX is a guest
+        # on a machine whose main job is running the user's whole home.
+        self._process_interval = (1.0 / process_fps) if process_fps else None
+
+        # Where frames come from. The default opens the camera directly with
+        # OpenCV, which is what a site agent does on the customer's LAN.
+        #
+        # reader_factory exists for the Home Assistant add-on, where FiremeX is
+        # NOT allowed to open the camera itself — Home Assistant owns the
+        # camera connection and FiremeX reads its MJPEG proxy instead. Only the
+        # source of the frames differs; the cooldown, annotation and health
+        # logic below must stay identical in both, so they live here once
+        # rather than being reimplemented alongside a second reader.
+        #
+        # Anything with start/stop/get_frame/last_frame_age works — that is the
+        # whole contract this class needs from a reader.
+        if reader_factory is None:
+            # Imported lazily so self-test / mock paths don't need cv2 or the
+            # shared package.
+            from app.detection.stream import StreamReader
+            reader_factory = StreamReader
+        self.reader = reader_factory(self.stream_url)
 
         self._running = False
         self._thread = None
@@ -156,7 +177,13 @@ class EdgePipeline:
                     })
                     logger.warning(f"HAZARD {top.label} on {self.camera_name} ({top.confidence:.0%})")
 
-            time.sleep(0.05)
+            if self._process_interval is None:
+                time.sleep(0.05)
+            else:
+                # Pace to the requested rate, measured from the START of this
+                # cycle so inference time counts towards the interval rather
+                # than being added on top of it.
+                time.sleep(max(0.0, self._process_interval - (time.time() - t0)))
 
     def health(self) -> dict:
         age = self.reader.last_frame_age()

@@ -1,0 +1,69 @@
+# FiremeX edge agent, packaged as a Home Assistant add-on.
+#
+# This is a SECOND delivery route for the agent, not a second product: it runs
+# the exact same published image as edge/docker-compose.yml. Home Assistant
+# users install it from the Add-on Store instead of writing an edge.env and
+# running docker compose by hand.
+#
+# Requires Home Assistant OS or Supervised. Home Assistant Container has no
+# Supervisor and therefore no add-ons at all — those users keep using
+# edge/docker-compose.yml, which remains fully supported.
+name: FiremeX Fire & Smoke Detection
+description: >-
+  Watches your cameras for fire and smoke using a YOLOv8 model that runs on this
+  machine. Video never leaves your network — only detections are sent to FiremeX.
+slug: firemex
+version: "0.2.0"          # MUST match the published image tag below
+                          # 0.2.0 is the first image containing ha_entrypoint.py;
+                          # 0.1.0 cannot read add-on options and must not be used here.
+url: https://github.com/malika1234m/Firemax/tree/main/addon/firemex
+
+# The same multi-arch image edge/docker-compose.yml pulls. Home Assistant
+# supports a generic multi-arch name, so no per-architecture tags are needed
+# and .github/workflows/publish-agent.yml is unchanged.
+image: ghcr.io/malika1234m/firemex-agent
+
+# Matches the platforms the publish workflow builds (linux/amd64, linux/arm64).
+arch:
+  - amd64
+  - aarch64
+
+# The image is a plain python:3.11-slim with its own CMD — no s6-overlay — so
+# the Supervisor's init is what reaps processes and forwards SIGTERM. The agent
+# handles SIGTERM itself (edge/agent.py) to shut pipelines down cleanly.
+init: true
+
+boot: auto
+startup: application
+
+# Cameras live on the customer's LAN, and OpenCV/FFmpeg negotiates RTSP over
+# UDP by default, which does not survive a NAT bridge reliably. This is the
+# same reason edge/docker-compose.yml sets network_mode: host.
+host_network: true
+
+# No ports are published. The agent only ever dials OUT to the FiremeX cloud,
+# so nothing needs to be reachable from outside.
+
+options:
+  cloud_url: https://firemex-backend.up.railway.app
+  agent_token: ""
+  detector_mode: yolo
+  model_url: https://github.com/malika1234m/Firemax/releases/download/v0.1.0/fire_model.pt
+  model_sha256: 2ab009042ba04827ee1cd1ccb0648832577677334c5fe4927e7c7950f7406c89
+  heartbeat_interval: 10
+  config_poll_interval: 30
+
+schema:
+  cloud_url: url
+  # password renders masked in the UI. The enrollment token authenticates this
+  # site to the cloud, so it should not sit in plain sight on a shared screen.
+  agent_token: password
+  # mock runs the whole agent with no ML at all — the right setting while
+  # wiring up a new site or on a box that cannot yet run the model.
+  detector_mode: list(yolo|mock)
+  model_url: "str?"
+  model_sha256: "str?"
+  # Bounded so a typo cannot silently make a site look dead. The cloud marks a
+  # site offline after 45s without a heartbeat (SITE_OFFLINE_AFTER_SECONDS).
+  heartbeat_interval: int(5,300)
+  config_poll_interval: int(10,3600)

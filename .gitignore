@@ -136,3 +136,8 @@ IndustryProject_Proposal*
 # Keep the frontend's real image assets tracked
 !frontend/src/assets/**
 !frontend/public/**
+
+# Annotated output from ml/demo_image.py and ml/demo_pipeline.py — regenerated
+# on every run, never worth committing.
+ml/demo_output.jpg
+ml/demo_*.jpg
