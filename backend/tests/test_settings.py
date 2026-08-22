@@ -87,3 +87,51 @@ async def test_org_update_rejects_out_of_range_cooldown(client):
     await signup(client)
     res = await client.patch("/organizations/me", json={"alert_cooldown_seconds": 2})
     assert res.status_code == 422
+
+
+# ── Deployment mode (how the customer runs FiremeX) ─────────────────────────
+
+async def test_deployment_mode_defaults_to_unset(client):
+    """A brand-new org has not answered the setup questionnaire, which is what
+    sends the admin to the choice screen instead of a guess."""
+    await signup(client)
+    res = await client.get("/organizations/me")
+    assert res.status_code == 200
+    assert res.json()["deployment_mode"] == "unset"
+
+
+async def test_deployment_mode_can_be_set_and_persists(client):
+    await signup(client)
+    res = await client.put("/organizations/me/deployment-mode",
+                           json={"deployment_mode": "home_assistant"})
+    assert res.status_code == 200
+    assert res.json()["deployment_mode"] == "home_assistant"
+
+    # and it is a property of the org, not of this response
+    res = await client.get("/organizations/me")
+    assert res.json()["deployment_mode"] == "home_assistant"
+
+
+async def test_deployment_mode_is_switchable(client):
+    """Someone who trials the add-on and then buys dedicated hardware must be
+    able to move across without support."""
+    await signup(client)
+    await client.put("/organizations/me/deployment-mode",
+                     json={"deployment_mode": "home_assistant"})
+    res = await client.put("/organizations/me/deployment-mode",
+                           json={"deployment_mode": "edge"})
+    assert res.status_code == 200
+    assert res.json()["deployment_mode"] == "edge"
+
+
+async def test_deployment_mode_rejects_unknown_value(client):
+    await signup(client)
+    res = await client.put("/organizations/me/deployment-mode",
+                           json={"deployment_mode": "kubernetes"})
+    assert res.status_code == 422
+
+
+async def test_deployment_mode_requires_authentication(client):
+    res = await client.put("/organizations/me/deployment-mode",
+                           json={"deployment_mode": "edge"})
+    assert res.status_code == 401

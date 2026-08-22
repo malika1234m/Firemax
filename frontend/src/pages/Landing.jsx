@@ -29,25 +29,28 @@ const FEATURES = [
   { icon: Building2,    title: 'Multi-Tenant & Secure',         text: 'Every organization\'s cameras, alerts, and users are fully isolated, with role-based access for admins and operators.' },
 ]
 
+/* The install story, told the way most customers will actually live it: FiremeX
+ * goes into the Home Assistant they already run. The old version of this
+ * section showed an edge-agent CLI, which contradicted the hero and described
+ * the path fewer customers take. The agent is still offered — one section
+ * below, on its own terms — rather than being the default everyone reads. */
 const STEPS = [
   {
-    label: 'Connect the cameras you already have',
+    label: 'Add the FiremeX repository to Home Assistant',
     render: () => (
-      <div className="flex flex-wrap gap-2">
-        {['RTSP', 'ONVIF', 'IP Camera', 'NVR', 'USB'].map(t => (
-          <span key={t} className="text-[12px] font-medium text-slate-300 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2">{t}</span>
-        ))}
+      <div className="rounded-lg bg-black/60 border border-white/[0.08] px-4 py-3 font-mono text-[12px]">
+        <div className="text-slate-600 text-[11px] mb-1.5">Settings → Add-ons → Add-on Store → ⋮ → Repositories</div>
+        <span className="text-brand break-all">https://github.com/malika1234m/Firemax</span>
       </div>
     ),
   },
   {
-    label: 'Point FiremeX at the stream',
+    label: 'Install FiremeX and press Start',
     render: () => (
-      <div className="rounded-lg bg-black/60 border border-white/[0.08] px-4 py-3 font-mono text-[12px]">
-        <span className="text-slate-600">$ </span>
-        <span className="text-slate-300">firemex add </span>
-        <span className="text-brand">rtsp://192.168.1.20:554/stream</span>
-        <div className="text-safe mt-1.5">✓ stream connected · monitoring live</div>
+      <div className="rounded-lg bg-black/60 border border-white/[0.08] px-4 py-3 font-mono text-[12px] leading-relaxed">
+        <div className="text-slate-300">FiremeX Fire &amp; Smoke Detection (Local)</div>
+        <div className="text-safe mt-1.5">✓ model verified · watching 4 cameras</div>
+        <div className="text-slate-600 mt-1">dashboard, controls and automations created for you</div>
       </div>
     ),
   },
@@ -61,6 +64,45 @@ const STEPS = [
         <div>{'}'}</div>
       </div>
     ),
+  },
+]
+
+/* Both ways of running FiremeX, stated plainly. The add-on is the recommended
+ * path and is listed first, but the agent is presented as a real product for
+ * sites with no Home Assistant or with several buildings to cover — not as a
+ * fallback for people who failed at the first one. */
+const DEPLOYMENTS = [
+  {
+    icon: Home,
+    badge: 'Recommended',
+    title: 'Home Assistant add-on',
+    tagline: 'You already run Home Assistant',
+    points: [
+      'Installs from the Add-on Store in three clicks',
+      'Uses the cameras Home Assistant already has',
+      'Runs fully local — works with no internet',
+      'Alerts and controls appear in your HA dashboard',
+    ],
+    note: 'Requires Home Assistant OS or Supervised.',
+    accent: 'text-live',
+    chip: 'bg-live/10 text-live border-live/25',
+    hover: 'hover:border-live/30',
+  },
+  {
+    icon: Server,
+    badge: null,
+    title: 'FiremeX edge agent',
+    tagline: 'No Home Assistant, or several sites',
+    points: [
+      'Runs anywhere Docker runs',
+      'Connects straight to RTSP, ONVIF and NVR cameras',
+      'One dashboard across every building',
+      'Incident history, users and shift scheduling',
+    ],
+    note: 'Requires a machine that stays on, on the camera network.',
+    accent: 'text-brand',
+    chip: 'bg-brand/10 text-brand border-brand/25',
+    hover: 'hover:border-brand/30',
   },
 ]
 
@@ -249,13 +291,24 @@ export default function Landing() {
         <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 top-24 w-[40rem] h-[24rem] rounded-full bg-ember/10 blur-[130px]" />
 
         <div className="relative max-w-4xl mx-auto px-6 sm:px-10 pt-20 pb-10 text-center">
+          {/* FiremeX is primarily a Home Assistant add-on, and the hero says so.
+              Most prospects already run Home Assistant watching their building;
+              telling them up front that this installs into it — rather than
+              being another system to run — is the single most useful thing on
+              the page. The standalone agent is named too, so nobody without
+              Home Assistant assumes the product is closed to them. */}
+          <div className="inline-flex items-center gap-2 text-[12px] font-semibold tracking-wide
+                          text-live bg-live/10 border border-live/25 rounded-full px-3 py-1.5 mb-6">
+            <Home size={13} /> Runs as a Home Assistant add-on
+          </div>
           <h1 className="font-raj font-extrabold text-[44px] sm:text-[58px] lg:text-[64px] leading-[1.02] tracking-tight">
-            <span className="text-ember">Fire Detection</span> for Modern Facilities
+            <span className="text-ember">Fire Detection</span> inside Home Assistant
           </h1>
           <p className="text-slate-300 text-[15px] sm:text-[17px] mt-6 max-w-2xl mx-auto leading-relaxed">
-            Real-time AI monitoring for the cameras you already have — with{' '}
-            <span className="inline-flex items-center text-[13px] font-mono text-brand bg-brand/10 border border-brand/25 rounded-md px-2 py-0.5 align-middle">any IP camera</span>
-            {' '}and more. Detect fire, smoke, and hazards, confirm the incident, and respond in seconds.
+            FiremeX installs into the Home Assistant you already run and watches the cameras it
+            already has. Detection happens on your own hardware —{' '}
+            <span className="inline-flex items-center text-[13px] font-mono text-brand bg-brand/10 border border-brand/25 rounded-md px-2 py-0.5 align-middle">video never leaves your network</span>.
+            {' '}No Home Assistant? A standalone agent does the same job on any machine.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-8">
             <Link to="/signup" className="flex items-center gap-2 bg-ember text-white text-sm font-semibold px-6 py-3 rounded-lg hover:bg-ember-dark transition-colors">
@@ -312,7 +365,9 @@ export default function Landing() {
           <h2 className="font-raj font-extrabold text-[32px] sm:text-[44px] leading-[1.05]">
             <span className="text-ember">Get up</span> and running in minutes
           </h2>
-          <p className="text-slate-500 text-[14px] mt-4">Live fire monitoring in three steps — no rip-and-replace hardware.</p>
+          <p className="text-slate-500 text-[14px] mt-4">
+            Three steps inside Home Assistant — no rip-and-replace hardware, no new box to run.
+          </p>
         </div>
 
         <div className="space-y-10">
@@ -329,6 +384,57 @@ export default function Landing() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* ── Two ways to run ─────────────────────────────── */}
+      <section className="border-t border-white/[0.06] bg-panel/40">
+        <div className="max-w-5xl mx-auto px-6 sm:px-10 py-20">
+          <div className="text-center max-w-xl mx-auto mb-12">
+            <h2 className="font-raj font-extrabold text-[28px] sm:text-[36px] leading-[1.08]">
+              Two ways to run it. <span className="text-ember">Same detection.</span>
+            </h2>
+            <p className="text-slate-500 text-[14px] mt-4">
+              The model, the confirmation workflow and the automations are identical. All that
+              changes is what you install and where you review alerts.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            {DEPLOYMENTS.map(({ icon: Icon, badge, title, tagline, points, note, accent, chip, hover }) => (
+              <div key={title}
+                   className={`glass-card border border-white/[0.07] rounded-xl p-6 flex flex-col transition-colors ${hover}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-white/[0.04] border border-white/[0.07] flex items-center justify-center shrink-0">
+                    <Icon size={18} className={accent} />
+                  </div>
+                  {badge && (
+                    <span className={`text-[10px] font-semibold tracking-wider uppercase px-2 py-1 rounded-full border ${chip}`}>
+                      {badge}
+                    </span>
+                  )}
+                </div>
+
+                <h3 className="font-raj font-bold text-[20px] text-white mt-4">{title}</h3>
+                <p className={`text-[12px] font-medium mt-1 ${accent}`}>{tagline}</p>
+
+                <ul className="mt-5 space-y-2.5 flex-1">
+                  {points.map(pt => (
+                    <li key={pt} className="flex items-start gap-2.5 text-[13.5px] text-slate-300">
+                      <CheckCircle2 size={15} className={`${accent} mt-0.5 shrink-0`} />
+                      <span>{pt}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <p className="text-[11.5px] text-slate-600 mt-5 leading-relaxed">{note}</p>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-center text-[13px] text-slate-500 mt-8">
+            Not sure which fits? We ask once when you sign up, then show you only the steps that apply.
+          </p>
         </div>
       </section>
 

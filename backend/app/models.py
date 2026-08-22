@@ -65,6 +65,21 @@ class Organization(BaseModel):
     confidence_threshold: float = 0.50
     alert_cooldown_seconds: int = 30
 
+    # How this customer runs FiremeX. Detection is the same either way; what
+    # differs is where it runs and what they have to install, so the setup
+    # guide, the Get Started checklist and the sidebar all key off this.
+    #
+    #   "home_assistant" — the Home Assistant add-on. Detection runs inside HA
+    #                      on the customer's own box, reading HA's own camera
+    #                      entities. No site, no enrollment token, no agent.
+    #   "edge"           — the standalone edge agent on customer hardware,
+    #                      enrolled to this cloud with a site token.
+    #
+    # "unset" means they have signed up but not chosen yet; the app sends them
+    # to the questionnaire rather than guessing, because the two paths have
+    # almost nothing in common and showing the wrong guide wastes their time.
+    deployment_mode: str = "unset"
+
     # Per-org Home Assistant connection. Each customer runs their own HA on
     # their own site, so credentials are scoped to the org — never global.
     # The token is stored Fernet-encrypted (see crypto.py); ha_url is the
@@ -91,6 +106,24 @@ class OrganizationPublic(BaseModel):
     plan_source: Optional[str] = None
     confidence_threshold: float = 0.50
     alert_cooldown_seconds: int = 30
+    deployment_mode: str = "unset"
+
+
+DEPLOYMENT_MODES = {"home_assistant", "edge"}
+
+
+class DeploymentModeUpdate(BaseModel):
+    """Answer to the setup questionnaire. Separate from OrganizationUpdate so
+    choosing a deployment path cannot be smuggled in alongside unrelated
+    settings edits, and so the choice has its own audited endpoint."""
+    deployment_mode: str
+
+    @field_validator("deployment_mode")
+    @classmethod
+    def known_mode(cls, v: str) -> str:
+        if v not in DEPLOYMENT_MODES:
+            raise ValueError(f"deployment_mode must be one of {sorted(DEPLOYMENT_MODES)}")
+        return v
 
 
 class OrganizationUpdate(BaseModel):

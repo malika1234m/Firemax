@@ -19,10 +19,12 @@ export default function Signup() {
 
   // A brand-new workspace has no cameras, no site and no agent, so the
   // Dashboard is empty and gives no hint what to do next. Send people who just
-  // registered to the setup checklist instead; anyone merely revisiting /signup
-  // while already logged in still goes where they were headed.
+  // registered to the setup question instead — which guide is right for them
+  // depends on whether they run Home Assistant, and guessing wrong costs them
+  // a page of steps that do not apply. Anyone merely revisiting /signup while
+  // already logged in still goes where they were headed.
   if (user) {
-    const dest = justSignedUp ? '/get-started' : (location.state?.from ?? '/')
+    const dest = justSignedUp ? '/choose-setup' : (location.state?.from ?? '/')
     return <Navigate to={dest} replace />
   }
 

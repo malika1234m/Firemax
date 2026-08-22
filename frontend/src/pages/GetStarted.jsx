@@ -13,7 +13,7 @@ import { useSetupProgress } from '../hooks/useSetupProgress'
 // the snippet below is correct on any deployment without being configured.
 const CLOUD_URL = `${window.location.origin}/api`
 
-function CopyButton({ text }) {
+export function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -53,7 +53,7 @@ function DownloadButton({ text, filename }) {
   )
 }
 
-function Snippet({ label, code, filename }) {
+export function Snippet({ label, code, filename }) {
   return (
     <div className="space-y-1.5">
       {label && (
@@ -74,7 +74,7 @@ function Snippet({ label, code, filename }) {
 
 /** One accordion row. Collapsed rows stay one line tall so the whole journey
  *  is visible at a glance; only the step being worked on shows its detail. */
-function Step({ index, total, icon: Icon, title, summary, done, active, optional, open, onToggle, children }) {
+export function Step({ index, total, icon: Icon, title, summary, done, active, optional, open, onToggle, children }) {
   return (
     <div className="relative pl-9">
       {/* spine */}
@@ -262,6 +262,22 @@ volumes:
         the edge agent — watches your cameras on your network and sends only detections and a thumbnail
         here. Live video leaves your site only while you're watching a camera, and is never stored.
       </p>
+
+      {/* Most customers already run Home Assistant, and for them this whole
+          guide is the long way round — no site, no token, no camera credentials
+          entered twice. Say so here rather than letting someone discover it
+          four steps in. */}
+      <div className="glass-card border border-white/[0.07] rounded-xl p-4 flex items-start gap-2.5">
+        <Home size={14} className="text-live shrink-0 mt-0.5" />
+        <p className="text-[12px] text-slate-500 leading-relaxed">
+          <span className="text-slate-300 font-medium">Already running Home Assistant?</span>{' '}
+          Install FiremeX as an add-on instead — it reads the cameras Home Assistant already has,
+          so there is no site to create and no token to copy.{' '}
+          <Link to="/get-started/home-assistant" className="text-brand hover:underline">
+            Home Assistant guide →
+          </Link>
+        </p>
+      </div>
 
       <div className="space-y-3">
         <Step {...stepProps('camera', 0)} icon={Camera}

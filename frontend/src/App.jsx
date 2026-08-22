@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { ShieldAlert, Menu } from 'lucide-react'
 import { useAuth } from './context/AuthContext'
+import { useOrganization } from './context/OrganizationContext'
 import Sidebar from './components/Sidebar'
 import logo from './assets/logo.png'
 import Landing from './pages/Landing'
@@ -14,6 +15,8 @@ import PlatformLogin from './pages/platform/PlatformLogin'
 import PlatformConsole from './pages/platform/PlatformConsole'
 import Dashboard from './pages/Dashboard'
 import GetStarted from './pages/GetStarted'
+import GetStartedHA from './pages/GetStartedHA'
+import ChooseSetup from './pages/ChooseSetup'
 import LiveFeed from './pages/LiveFeed'
 import Incidents from './pages/Incidents'
 import Alerts from './pages/Alerts'
@@ -69,12 +72,26 @@ function AppShell({ children }) {
   )
 }
 
+/* A brand-new organization has not said how it wants to run FiremeX yet, and
+ * almost every page assumes one path or the other — the Home Assistant add-on
+ * or the standalone edge agent. Ask once, before showing a guide that might not
+ * apply. Only admins are asked; an operator invited to an existing org should
+ * never be made to answer an infrastructure question. */
+function useSetupRedirect() {
+  const { isAdmin } = useAuth()
+  const { needsSetupChoice, loading } = useOrganization()
+  const location = useLocation()
+  return isAdmin && !loading && needsSetupChoice && location.pathname !== '/choose-setup'
+}
+
 function ProtectedLayout() {
   const { user, loading } = useAuth()
   const location = useLocation()
+  const redirectToChoice = useSetupRedirect()
 
   if (loading) return <FullScreenLoader />
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />
+  if (redirectToChoice) return <Navigate to="/choose-setup" replace />
 
   return <AppShell><Outlet /></AppShell>
 }
@@ -84,9 +101,11 @@ function ProtectedLayout() {
 // redirects to /login instead.
 function RootRoute() {
   const { user, loading } = useAuth()
+  const redirectToChoice = useSetupRedirect()
 
   if (loading) return <FullScreenLoader />
   if (!user) return <Landing />
+  if (redirectToChoice) return <Navigate to="/choose-setup" replace />
 
   return <AppShell><Dashboard /></AppShell>
 }
@@ -125,7 +144,10 @@ export default function App() {
       <Route path="/platform"        element={<PlatformConsole />} />
 
       <Route element={<ProtectedLayout />}>
+        <Route path="/choose-setup"  element={<AdminRoute><ChooseSetup /></AdminRoute>} />
         <Route path="/get-started"   element={<AdminRoute><GetStarted /></AdminRoute>} />
+        <Route path="/get-started/home-assistant"
+               element={<AdminRoute><GetStartedHA /></AdminRoute>} />
         <Route path="/live-feed"     element={<LiveFeed />}    />
         <Route path="/incidents"     element={<Incidents />}   />
         <Route path="/alerts"        element={<Alerts />}      />

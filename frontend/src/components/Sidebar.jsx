@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Video, AlertTriangle, Bell, Users, Camera, Settings, Home, LogOut, CalendarClock, CreditCard, LifeBuoy, Server, Rocket } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { apiFetch } from '../lib/api'
+import { useOrganization } from '../context/OrganizationContext'
 import logo from '../assets/logo.png'
 
 const NAV = [
@@ -17,7 +16,10 @@ const NAV = [
   { to: '/shifts',       label: 'Shifts',       icon: CalendarClock,   end: false, adminOnly: false },
   { to: '/users',        label: 'Users',        icon: Users,           end: false, adminOnly: true  },
   { to: '/cameras',      label: 'Cameras',      icon: Camera,          end: false, adminOnly: true  },
-  { to: '/sites',        label: 'Sites',        icon: Server,          end: false, adminOnly: true  },
+  // Sites exist only in the edge-agent deployment: a Home Assistant add-on
+  // enrolls nothing and has no site token, so the page would be permanently
+  // empty for those customers. Hidden rather than shown-and-broken.
+  { to: '/sites',        label: 'Sites',        icon: Server,          end: false, adminOnly: true, edgeOnly: true },
   { to: '/billing',      label: 'Billing',      icon: CreditCard,      end: false, adminOnly: true  },
   { to: '/support',      label: 'Support',      icon: LifeBuoy,        end: false, adminOnly: false },
   { to: '/settings',     label: 'Settings',     icon: Settings,        end: false, adminOnly: false },
@@ -25,12 +27,19 @@ const NAV = [
 
 export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
   const { user, isAdmin, logout } = useAuth()
+  // Shared with the route guard and the settings page, so changing how FiremeX
+  // runs re-shapes this nav straight away rather than after a reload.
+  const { org, isHomeAssistant } = useOrganization()
   const navigate = useNavigate()
-  const [org, setOrg] = useState(null)
 
-  useEffect(() => {
-    apiFetch('/organizations/me').then(r => r.ok ? r.json() : null).then(setOrg).catch(() => {})
-  }, [])
+  // Get Started points at whichever guide matches how this customer runs
+  // FiremeX — the two journeys share almost no steps.
+  const navItems = NAV
+    .filter(item => !item.adminOnly || isAdmin)
+    .filter(item => !item.edgeOnly || !isHomeAssistant)
+    .map(item => (item.to === '/get-started' && isHomeAssistant
+      ? { ...item, to: '/get-started/home-assistant' }
+      : item))
 
   const handleLogout = async () => {
     await logout()
@@ -80,7 +89,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
 
       {/* ── Nav ───────────────────────────────── */}
       <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-        {NAV.filter(item => !item.adminOnly || isAdmin).map(({ to, label, icon: Icon, end }) => (
+        {navItems.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
