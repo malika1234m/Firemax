@@ -13,7 +13,7 @@ description: >-
   Detects fire and smoke in your existing Home Assistant cameras. Runs entirely
   on this machine — no account, no cloud, no internet needed after setup.
 slug: firemex_local
-version: "1.1.0"
+version: "1.2.0"
 url: https://github.com/malika1234m/Firemax/tree/main/addon/firemex-local
 
 image: ghcr.io/malika1234m/firemex-ha
@@ -43,6 +43,9 @@ map:
 # route to the LAN. Home Assistant already holds those connections.
 
 options:
+  # Blank runs the free tier: one camera. Paste the key from your FiremeX
+  # dashboard to watch all of them.
+  licence_key: ""
   cameras: []
   confidence_threshold: 0.50
   alert_cooldown_seconds: 30
@@ -58,6 +61,8 @@ options:
   provision_dashboard: true
 
 schema:
+  # Optional on purpose — the add-on must install and run with no key at all.
+  licence_key: "str?"
   # Empty list = watch every camera entity. Name entities to narrow it —
   # running the model on a doorbell costs CPU and false alarms, not safety.
   cameras:

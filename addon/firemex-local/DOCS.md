@@ -111,10 +111,28 @@ automation:
 `sensor.firemex_hazard` returns to `clear` once nothing has been detected for
 `clear_after_seconds`, so it is safe to use in template conditions.
 
+## Licensing
+
+FiremeX is free for **one camera**. Install it, press Start, and it watches a
+single camera with no account and no key — enough to see it work on your own
+footage.
+
+To watch every camera, paste your licence key into the `licence_key` option.
+You will find it in the FiremeX dashboard under **Get Started → Add your
+licence key**.
+
+The key is checked once against the FiremeX cloud and then cached in `/data`,
+so the add-on keeps running with no internet afterwards. If the licence server
+is ever unreachable, the cached answer is used — and if it cannot be resolved at
+all, the add-on drops to the free tier rather than stopping. It is a fire
+detector; it does not stop watching your building because a subscription server
+is down.
+
 ## Options
 
 | Option | What it does |
 |---|---|
+| `licence_key` | Your key from the FiremeX dashboard. **Leave blank to run the free tier** — one camera, no account. See Licensing above. |
 | `cameras` | Which camera entities to watch. **Empty means all of them.** Naming entities explicitly is how you keep the model off cameras that don't matter — a doorbell costs CPU and false alarms, not safety. |
 | `confidence_threshold` | How confident a detection must be to raise a hazard. Lower catches more and cries wolf more. |
 | `alert_cooldown_seconds` | Minimum gap between hazards from the same camera. Stops one fire producing hundreds of notifications. |

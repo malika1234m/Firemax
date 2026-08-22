@@ -32,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from ha_agent import licence as licence_module      # noqa: E402
 from ha_agent import options as opts_module          # noqa: E402
 from ha_agent.ha_client import HAClient, OFFLINE_HAZARD  # noqa: E402
 from ha_agent.ha_stream import reader_factory        # noqa: E402
@@ -112,12 +113,33 @@ def build_detector(options):
     return ClassFilteredDetector(detector, allowed)
 
 
-def wanted_cameras(client: HAClient, options) -> dict:
+def _apply_camera_limit(cameras: dict, max_cameras) -> dict:
+    """Trim the watch list to what this install is licensed for.
+
+    Sorted by entity_id rather than taking whatever order Home Assistant
+    returned, so the free tier watches the SAME camera on every restart. A limit
+    that silently moved between cameras would be worse than no limit at all —
+    the customer would believe a camera was covered when it no longer was.
+    """
+    if max_cameras is None or len(cameras) <= max_cameras:
+        return cameras
+
+    keep = dict(sorted(cameras.items())[:max_cameras])
+    dropped = [e for e in sorted(cameras) if e not in keep]
+    logger.warning(
+        f"FREE TIER: watching {len(keep)} of {len(cameras)} cameras. "
+        f"Not watched: {', '.join(dropped)}. "
+        f"Add a licence key in the Configuration tab to watch all of them."
+    )
+    return keep
+
+
+def wanted_cameras(client: HAClient, options, max_cameras=None) -> dict:
     """Which HA camera entities to watch, keyed by entity_id."""
     available = {c["entity_id"]: c for c in client.list_cameras()}
     chosen = options.cameras
     if not chosen:
-        return available
+        return _apply_camera_limit(available, max_cameras)
 
     result = {}
     for entity_id in chosen:
@@ -126,7 +148,7 @@ def wanted_cameras(client: HAClient, options) -> dict:
         else:
             logger.warning(f"configured camera '{entity_id}' is not an available "
                            f"Home Assistant camera entity — ignoring it")
-    return result
+    return _apply_camera_limit(result, max_cameras)
 
 
 def write_snapshot(directory: str, entity_id: str, frame_b64: str | None) -> str | None:
@@ -171,11 +193,12 @@ class CameraState:
         self.offline_alerted = False
 
 
-def reconcile(client, options, detector, pipelines: dict, states: dict, on_event):
+def reconcile(client, options, detector, pipelines: dict, states: dict, on_event,
+              max_cameras=None):
     """Make the running pipelines match Home Assistant's camera list."""
     from pipeline import EdgePipeline
 
-    wanted = wanted_cameras(client, options)
+    wanted = wanted_cameras(client, options, max_cameras)
 
     for entity_id in list(pipelines):
         if entity_id not in wanted:
@@ -205,6 +228,14 @@ def run():
     logger.info(f"FiremeX Home Assistant add-on v{opts_module.ADDON_VERSION} — fully local")
     logger.info(f"  detector={options.detector_mode}  threshold={options.confidence_threshold}  "
                 f"cooldown={options.alert_cooldown_seconds}s  model={options.model_path}")
+
+    # Resolved once, at startup. Home Assistant restarts an add-on whenever its
+    # Configuration tab is saved, so a newly pasted key takes effect the moment
+    # the customer saves it — without this loop having to poll a network service
+    # it cannot depend on.
+    entitlement = licence_module.resolve(options.licence_key)
+    max_cameras = entitlement.get("max_cameras")
+    logger.info(licence_module.describe(entitlement))
 
     client = HAClient()
     if not client.token:
@@ -267,7 +298,7 @@ def run():
         )
 
     pipelines: dict = {}
-    reconcile(client, options, detector, pipelines, states, on_event)
+    reconcile(client, options, detector, pipelines, states, on_event, max_cameras)
     if not pipelines:
         logger.warning("No Home Assistant camera entities to watch yet — add a "
                        "camera integration in Home Assistant and it will be "
@@ -338,7 +369,8 @@ def run():
         if now - last_discovery >= DISCOVERY_INTERVAL:
             last_discovery = now
             try:
-                reconcile(client, options, detector, pipelines, states, on_event)
+                reconcile(client, options, detector, pipelines, states, on_event,
+                          max_cameras)
             except Exception as exc:
                 logger.warning(f"camera discovery failed, keeping current set: {exc}")
 

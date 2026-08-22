@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0
+
+- **Licence key, and a free tier.** The add-on now installs and runs with no
+  key at all, watching one camera so you can see it work on your own footage
+  before paying for anything. A key from your FiremeX dashboard lifts the limit.
+- The key is checked once and then cached in `/data`, so the add-on keeps
+  working with no internet — the point of running it locally.
+- Licensing never stops detection. If the licence server is unreachable the
+  cached answer is honoured, and the worst outcome of any failure is the free
+  tier: one camera still watched, never zero.
+- The free tier watches the same camera on every restart (first by entity id),
+  so a camera you believe is covered stays covered.
+
 ## 1.1.0
 
 - **Sets itself up.** Installing the add-on and pressing Start now creates the

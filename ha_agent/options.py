@@ -7,7 +7,7 @@ the Supervisor renders that to /data/options.json.
 import json
 import os
 
-ADDON_VERSION = "1.1.0"
+ADDON_VERSION = "1.2.0"
 
 OPTIONS_PATH = os.environ.get("OPTIONS_PATH", "/data/options.json")
 
@@ -27,6 +27,10 @@ SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/homeassistant/www/firemex")
 HA_CONFIG_DIR = os.environ.get("HA_CONFIG_DIR", "/config")
 
 DEFAULTS = {
+    # Licence key from the FiremeX dashboard. Blank is a supported state, not a
+    # broken one: an add-on with no key watches one camera so that anyone can
+    # try FiremeX on their own footage before paying for anything.
+    "licence_key": "",
     # Empty means "every camera entity Home Assistant has". Naming entities
     # explicitly is how a user limits detection to the cameras that matter —
     # running the model on a doorbell adds cost and false alarms, not safety.

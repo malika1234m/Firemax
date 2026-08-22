@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Home, Store, SlidersHorizontal, Bell, ExternalLink, Info, ArrowLeftRight } from 'lucide-react'
+import { Home, Store, SlidersHorizontal, Bell, ExternalLink, Info, ArrowLeftRight, KeyRound } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
+import { apiFetch } from '../lib/api'
 import { Step, Snippet } from './GetStarted'
 
 /**
@@ -28,9 +29,16 @@ watching 1 camera(s)`
 
 export default function GetStartedHA() {
   const [open, setOpen] = useState('repo')
+  // The key that lifts the one-camera free tier. Fetched rather than derived:
+  // it is a credential, so it is never part of the general organization payload.
+  const [licence, setLicence] = useState(null)
+  useEffect(() => {
+    apiFetch('/licence/me').then(r => (r.ok ? r.json() : null)).then(setLicence).catch(() => {})
+  }, [])
+
   const toggle = (id) => setOpen(open === id ? null : id)
   const props = (id, i) => ({
-    index: i, total: 4, open: open === id, onToggle: () => toggle(id),
+    index: i, total: 5, open: open === id, onToggle: () => toggle(id),
     done: false, active: open === id,
   })
 
@@ -38,7 +46,7 @@ export default function GetStartedHA() {
     <div className="max-w-5xl">
       <PageHeader
         title="Get Started — Home Assistant"
-        subtitle="Four steps. Detection runs inside Home Assistant on your own hardware."
+        subtitle="Five steps. Detection runs inside Home Assistant on your own hardware."
       />
 
       <div className="glass-card border border-white/[0.07] rounded-xl p-5 mb-6 flex items-start gap-3">
@@ -92,7 +100,32 @@ export default function GetStartedHA() {
           </div>
         </Step>
 
-        <Step {...props('tune', 2)} icon={SlidersHorizontal}
+        <Step {...props('licence', 2)} icon={KeyRound}
+              title="Add your licence key"
+              summary="Configuration tab — lifts the one-camera free tier">
+          <p className="text-sm text-slate-400">
+            FiremeX installs and runs without a key, watching{' '}
+            <span className="text-slate-300">one camera</span> so you can see it work on your own
+            footage first. Paste this key into the add-on's{' '}
+            <span className="text-slate-300">Configuration</span> tab to watch all of them.
+          </p>
+          <div className="mt-4">
+            <Snippet
+              label="Your licence key"
+              code={licence?.licence_key || 'Loading your licence key…'}
+            />
+          </div>
+          <p className="text-xs text-slate-500 mt-3 flex items-start gap-2">
+            <Info size={13} className="mt-0.5 shrink-0" />
+            <span>
+              Checked once and then cached on your machine, so the add-on keeps working with no
+              internet. Treat it like a password — anyone who has it can license their own install.
+              You can replace it in <span className="text-slate-400">Settings → Organization</span>.
+            </span>
+          </p>
+        </Step>
+
+        <Step {...props('tune', 3)} icon={SlidersHorizontal}
               title="Choose which cameras to watch"
               summary="Configuration tab — optional, defaults work">
           <p className="text-sm text-slate-400">
@@ -118,7 +151,7 @@ export default function GetStartedHA() {
           </p>
         </Step>
 
-        <Step {...props('review', 3)} icon={Bell}
+        <Step {...props('review', 4)} icon={Bell}
               title="Review your first alert"
               summary="FiremeX raises alerts — you confirm them into incidents">
           <p className="text-sm text-slate-400">

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, Home, Server, Check } from 'lucide-react'
-import { apiJson } from '../../lib/api'
+import { Building2, Home, Server, Check, KeyRound, RefreshCw } from 'lucide-react'
+import { apiFetch, apiJson } from '../../lib/api'
 import { useToast } from '../../context/ToastContext'
+import { useConfirm } from '../../context/ConfirmContext'
 import { DEPLOYMENT_MODES, useOrganization } from '../../context/OrganizationContext'
 
 /* Where detection runs. Changing this only changes which setup guide and which
@@ -29,14 +30,42 @@ const MODE_CARDS = [
 
 export default function OrganizationSettings() {
   const { toast } = useToast()
+  const confirm = useConfirm()
   // Shared org state: switching how FiremeX runs has to reach the sidebar and
   // the route guard too, not just this page.
   const { org, chooseMode, refresh } = useOrganization()
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
   const [switching, setSwitching] = useState(false)
+  const [licence, setLicence] = useState(null)
+  const [rotating, setRotating] = useState(false)
 
   useEffect(() => { if (org) setName(org.name) }, [org])
+  useEffect(() => {
+    apiFetch('/licence/me').then(r => (r.ok ? r.json() : null)).then(setLicence).catch(() => {})
+  }, [])
+
+  // Rotation has to be self-service: the key is a bearer credential pasted into
+  // a config field, so sooner or later it lands in a screenshot or a support
+  // thread. Existing add-ons keep running on the old key until they re-check.
+  const rotateKey = async () => {
+    if (!await confirm({
+      title: 'Issue a new licence key?',
+      message: 'The current key stops working. Every add-on using it drops to the '
+             + 'one-camera free tier until you paste the new key into its Configuration tab.',
+      danger: true,
+      confirmLabel: 'Issue new key',
+    })) return
+    setRotating(true)
+    try {
+      setLicence(await apiJson('/licence/me/rotate', { method: 'POST' }))
+      toast({ type: 'success', message: 'New licence key issued.' })
+    } catch (err) {
+      toast({ type: 'error', message: err.message || 'Could not rotate the key' })
+    } finally {
+      setRotating(false)
+    }
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -134,6 +163,36 @@ export default function OrganizationSettings() {
             You have not chosen yet — pick the one that matches your site.
           </p>
         )}
+      </div>
+
+      <div className="glass-card border border-white/[0.07] rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <KeyRound size={13} className="text-slate-500" />
+          <div>
+            <h2 className="font-raj font-semibold text-[13px] tracking-[0.08em] text-slate-400 uppercase">Add-on Licence Key</h2>
+            <p className="text-[11px] text-slate-600">
+              Lifts the one-camera free tier in the Home Assistant add-on.
+            </p>
+          </div>
+        </div>
+
+        <code className="block font-mono text-[12px] text-slate-300 bg-black/40 border border-white/[0.07]
+                         rounded-lg px-3 py-2.5 break-all">
+          {licence?.licence_key ?? 'Loading…'}
+        </code>
+
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={rotateKey} disabled={rotating || !licence}
+                  className="inline-flex items-center gap-2 text-[12px] text-slate-400 hover:text-slate-200
+                             border border-white/[0.09] rounded-lg px-3 py-1.5 disabled:opacity-40
+                             transition-colors">
+            <RefreshCw size={12} className={rotating ? 'animate-spin' : ''} />
+            {rotating ? 'Issuing…' : 'Issue new key'}
+          </button>
+          <p className="text-[11px] text-slate-600">
+            Treat it like a password — anyone who has it can license their own install.
+          </p>
+        </div>
       </div>
 
       <div className="glass-card border border-white/[0.07] rounded-xl p-6 space-y-3">

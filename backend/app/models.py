@@ -80,6 +80,18 @@ class Organization(BaseModel):
     # almost nothing in common and showing the wrong guide wastes their time.
     deployment_mode: str = "unset"
 
+    # Licence key for the fully-local Home Assistant add-on.
+    #
+    # The add-on runs on the customer's own hardware and never authenticates as
+    # a user — it has no account and no session. So entitlement travels as an
+    # opaque key the admin copies from this dashboard into the add-on's
+    # Configuration tab, which the add-on validates once and then caches.
+    #
+    # Generated lazily on first request rather than at signup, so existing
+    # organizations get one without a migration. Deliberately absent from
+    # OrganizationPublic: it is a credential, not a profile field.
+    licence_key: Optional[str] = None
+
     # Per-org Home Assistant connection. Each customer runs their own HA on
     # their own site, so credentials are scoped to the org — never global.
     # The token is stored Fernet-encrypted (see crypto.py); ha_url is the
@@ -110,6 +122,39 @@ class OrganizationPublic(BaseModel):
 
 
 DEPLOYMENT_MODES = {"home_assistant", "edge"}
+
+# What an unlicensed add-on may watch. One camera is enough to prove the product
+# works on the customer's own footage — which is the point of the free tier —
+# and far enough from a real installation to be worth paying to lift.
+FREE_TIER_MAX_CAMERAS = 1
+
+
+class LicenceCheck(BaseModel):
+    """Body of the add-on's licence check. Deliberately the only field: the
+    add-on has no account, so the key is the whole credential."""
+    licence_key: str
+
+
+class LicencePublic(BaseModel):
+    """Answer to a licence check.
+
+    `max_cameras` is None for unlimited. The add-on is told a NUMBER rather than
+    a plan name, so changing what a plan includes never requires shipping a new
+    add-on image.
+    """
+    valid: bool
+    plan: str = "free"
+    max_cameras: Optional[int] = FREE_TIER_MAX_CAMERAS
+    organization: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class LicenceKeyPublic(BaseModel):
+    """The admin's own key, shown in the dashboard so it can be copied into the
+    add-on's Configuration tab."""
+    licence_key: str
+    plan: str
+    max_cameras: Optional[int] = None
 
 
 class DeploymentModeUpdate(BaseModel):

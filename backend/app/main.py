@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import connect_db, close_db, get_db
-from app.routers import cameras, alerts, ws, users, home_assistant, auth, shifts, authorities, billing, organizations, demo, platform, support, sites, agent
+from app.routers import cameras, alerts, ws, users, home_assistant, auth, shifts, authorities, billing, organizations, demo, platform, support, sites, agent, licence
 from app.routers.billing import bootstrap_prices_sync
 
 logging.basicConfig(level=logging.INFO)
@@ -122,6 +122,7 @@ app.include_router(platform.router)
 app.include_router(support.router)
 app.include_router(sites.router)
 app.include_router(agent.router)
+app.include_router(licence.router)
 
 
 @app.get("/health")
