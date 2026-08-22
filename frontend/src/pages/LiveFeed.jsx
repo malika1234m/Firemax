@@ -4,6 +4,7 @@ import { Plus, Grid2x2, Grid3x3, Pin, PinOff } from 'lucide-react'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { apiFetch } from '../lib/api'
 import PageHeader from '../components/PageHeader'
+import LocalDeploymentNotice from '../components/LocalDeploymentNotice'
 
 const HAZARDS = new Set(['fire', 'smoke', 'flame', 'gas_fire', 'lpg_fire', 'chemical_fire', 'gas_shimmer'])
 const PIN_STORAGE_KEY = 'firemex_pinned_cameras'
@@ -77,11 +78,15 @@ export default function LiveFeed() {
       </PageHeader>
 
       {cameras.length === 0 ? (
-        <div className="glass-card border border-white/[0.06] rounded-xl p-16 flex flex-col items-center gap-4">
-          <p className="text-slate-500 text-sm">No cameras streaming yet</p>
-          <Link to="/cameras" className="text-xs bg-brand/10 text-brand border border-brand/20 px-4 py-2 rounded-lg hover:bg-brand/20 transition-colors">
-            Add Camera
-          </Link>
+        <div className="glass-card border border-white/[0.06] rounded-xl">
+          <LocalDeploymentNotice what="The live feed">
+            <div className="p-16 flex flex-col items-center gap-4">
+              <p className="text-slate-500 text-sm">No cameras streaming yet</p>
+              <Link to="/cameras" className="text-xs bg-brand/10 text-brand border border-brand/20 px-4 py-2 rounded-lg hover:bg-brand/20 transition-colors">
+                Add Camera
+              </Link>
+            </div>
+          </LocalDeploymentNotice>
         </div>
       ) : (
         <>

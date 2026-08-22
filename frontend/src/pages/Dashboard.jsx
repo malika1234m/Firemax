@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatHazardLabel } from '../lib/format'
 import PageHeader from '../components/PageHeader'
+import LocalDeploymentNotice from '../components/LocalDeploymentNotice'
+import { useOrganization } from '../context/OrganizationContext'
 
 const RISK_STYLES = {
   Normal:   { cls: 'bg-safe/15 text-safe border-safe/25' },
@@ -36,6 +38,7 @@ export default function Dashboard() {
   }, [])
 
   const online       = health ? health.online : 0
+  const { isHomeAssistant } = useOrganization()
   const offlineCams  = cameras.filter(c => !health?.cameras?.[c.camera_id]?.online)
   const offlineCam   = offlineCams[0] ?? null
 
@@ -43,7 +46,12 @@ export default function Dashboard() {
   // watching anything", which are very different situations for an operator.
   const anythingReporting = Boolean(health && health.online > 0)
   const cameraStatusText =
-    cameras.length === 0            ? 'No cameras added yet'
+    // The add-on never reports here, so the cloud's view of "is anything
+    // watching?" is meaningless for these customers — and the honest-looking
+    // answer is the dangerous one: "detection is not running" is false, and an
+    // operator who believes it thinks their building is unwatched.
+    isHomeAssistant                 ? 'Detection runs inside Home Assistant'
+    : cameras.length === 0          ? 'No cameras added yet'
     : !anythingReporting            ? 'No agent reporting — detection is not running'
     : offlineCams.length === 0      ? 'All cameras reporting'
     : offlineCams.length === 1      ? `1 camera not reporting — ${offlineCam.name}`
@@ -85,7 +93,11 @@ export default function Dashboard() {
           <p className="font-raj font-bold text-[26px] leading-none text-white">
             {online}<span className="text-slate-600 text-lg font-medium">/{cameras.length}</span>
           </p>
-          <p className={`text-[11px] mt-2 ${cameras.length && !offlineCams.length ? 'text-slate-600' : 'text-hazard'}`}>
+          {/* Hazard-red is for "something is wrong". A Home Assistant install
+              reporting nothing here is the normal, correct state, so it must
+              not be coloured like a fault. */}
+          <p className={`text-[11px] mt-2 ${isHomeAssistant || (cameras.length && !offlineCams.length)
+                                              ? 'text-slate-600' : 'text-hazard'}`}>
             {cameraStatusText}
           </p>
         </div>
@@ -132,7 +144,9 @@ export default function Dashboard() {
         </div>
 
         {recent.length === 0 ? (
-          <p className="text-center text-slate-700 text-sm py-10">No incidents recorded</p>
+          <LocalDeploymentNotice what="This dashboard">
+            <p className="text-center text-slate-700 text-sm py-10">No incidents recorded</p>
+          </LocalDeploymentNotice>
         ) : (
           <table className="w-full text-left">
             <thead>

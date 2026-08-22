@@ -4,6 +4,7 @@ import { apiFetch, apiJson } from '../lib/api'
 import { formatHazardLabel } from '../lib/format'
 import { useToast } from '../context/ToastContext'
 import PageHeader from '../components/PageHeader'
+import LocalDeploymentNotice from '../components/LocalDeploymentNotice'
 
 const PAGE_SIZE = 8
 const RANGES = [
@@ -103,7 +104,9 @@ export default function Incidents() {
       {/* ── Table ────────────────────────────────── */}
       <div className="glass-card border border-white/[0.07] rounded-xl overflow-hidden">
         {pageItems.length === 0 ? (
-          <p className="text-center text-slate-700 text-sm py-12">No incidents match these filters</p>
+          <LocalDeploymentNotice what="Incident history">
+            <p className="text-center text-slate-700 text-sm py-12">No incidents match these filters</p>
+          </LocalDeploymentNotice>
         ) : (
           <table className="w-full text-left">
             <thead>

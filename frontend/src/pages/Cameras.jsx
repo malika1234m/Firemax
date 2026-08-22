@@ -4,6 +4,7 @@ import { apiFetch } from '../lib/api'
 import { useToast } from '../context/ToastContext'
 import { useConfirm } from '../context/ConfirmContext'
 import PageHeader from '../components/PageHeader'
+import LocalDeploymentNotice from '../components/LocalDeploymentNotice'
 
 const EMPTY_FORM = {
   name: '', ip_address: '', zone: '', resolution: '1080p (Full HD)', frame_rate: 30, ai_tracking: true,
@@ -201,11 +202,15 @@ export default function Cameras() {
             Configured Cameras ({cameras.length})
           </h2>
           {cameras.length === 0 ? (
-            <div className="glass-card border border-white/[0.06] rounded-xl p-12 flex flex-col items-center gap-3 text-center">
-              <div className="w-12 h-12 rounded-full bg-slate-900 border border-white/[0.06] flex items-center justify-center">
-                <CameraIcon size={20} className="text-slate-700" />
-              </div>
-              <p className="text-slate-500 text-sm">No cameras yet — add your first device on the left.</p>
+            <div className="glass-card border border-white/[0.06] rounded-xl">
+              <LocalDeploymentNotice what="This list">
+                <div className="p-12 flex flex-col items-center gap-3 text-center">
+                  <div className="w-12 h-12 rounded-full bg-slate-900 border border-white/[0.06] flex items-center justify-center">
+                    <CameraIcon size={20} className="text-slate-700" />
+                  </div>
+                  <p className="text-slate-500 text-sm">No cameras yet — add your first device on the left.</p>
+                </div>
+              </LocalDeploymentNotice>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

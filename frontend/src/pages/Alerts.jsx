@@ -3,6 +3,7 @@ import { Send, CheckCircle2, Clock, XCircle, ChevronLeft, ChevronRight } from 'l
 import { apiFetch } from '../lib/api'
 import { formatHazardLabel } from '../lib/format'
 import PageHeader from '../components/PageHeader'
+import LocalDeploymentNotice from '../components/LocalDeploymentNotice'
 
 const PAGE_SIZE = 9
 
@@ -49,7 +50,9 @@ export default function Alerts() {
         </div>
 
         {pageItems.length === 0 ? (
-          <p className="text-center text-slate-700 text-sm py-12">No alerts dispatched yet</p>
+          <LocalDeploymentNotice what="Alerts">
+            <p className="text-center text-slate-700 text-sm py-12">No alerts dispatched yet</p>
+          </LocalDeploymentNotice>
         ) : (
           <table className="w-full text-left">
             <thead>
