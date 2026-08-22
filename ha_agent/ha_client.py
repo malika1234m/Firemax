@@ -29,6 +29,24 @@ HAZARD_WEBHOOK = "firemax_hazard_alert"
 CLEAR_WEBHOOK = "firemax_hazard_clear"
 HAZARD_EVENT = "firemex_hazard"
 
+# A camera that stops delivering frames is itself an alert: an operator must be
+# told the building is no longer being watched. This is the same
+# "camera_offline" hazard type the cloud's Alert model carries.
+OFFLINE_EVENT = "firemex_camera_offline"
+OFFLINE_HAZARD = "camera_offline"
+
+
+# FiremeX publishes its own annotated snapshots back into Home Assistant as
+# local_file cameras. Those must never be treated as cameras to watch: the
+# agent would run detection on its own output, write a new snapshot from that,
+# and detect on THAT — a feedback loop that also doubles the inference load.
+SNAPSHOT_CAMERA_PREFIX = "camera.firemex_snapshot_"
+
+
+def camera_slug(entity_id: str) -> str:
+    """camera.warehouse_bay -> warehouse_bay, for building per-camera entity ids."""
+    return entity_id.split(".", 1)[-1]
+
 
 class HAClient:
     def __init__(self, base_url: str | None = None, token: str | None = None, timeout: float = 10.0):
@@ -57,6 +75,8 @@ class HAClient:
             entity_id = state.get("entity_id", "")
             if not entity_id.startswith("camera."):
                 continue
+            if entity_id.startswith(SNAPSHOT_CAMERA_PREFIX):
+                continue          # our own evidence frames — see note above
             # An unavailable camera is one HA cannot currently reach. Watching
             # it would just spin a reader against nothing.
             if state.get("state") in ("unavailable", "unknown"):
@@ -80,7 +100,7 @@ class HAClient:
 
     # ── publishing hazards back to Home Assistant ──────────────────────────
     def publish_hazard(self, hazard_type: str, camera_name: str, confidence: float,
-                       entity_id: str, timestamp: str) -> None:
+                       entity_id: str, timestamp: str, snapshot: str | None = None) -> None:
         """Announce a hazard three ways, because Home Assistant users trigger
         automations three different ways and we do not get to choose for them:
 
@@ -95,6 +115,7 @@ class HAClient:
             "confidence": confidence,
             "entity_id": entity_id,
             "timestamp": timestamp,
+            "snapshot": snapshot,
         }
         self._post(f"/events/{HAZARD_EVENT}", payload, "event")
         self._post(f"/states/{HAZARD_SENSOR}", {
@@ -108,6 +129,8 @@ class HAClient:
                 "confidence": f"{confidence:.0%}",
                 "confidence_raw": confidence,
                 "timestamp": timestamp,
+                "entity_picture": snapshot,
+                "snapshot": snapshot,
             },
         }, "sensor")
         self._post(f"/webhook/{HAZARD_WEBHOOK}", payload, "webhook")
@@ -128,6 +151,55 @@ class HAClient:
             },
         }, "sensor")
         self._post(f"/webhook/{CLEAR_WEBHOOK}", {"timestamp": timestamp}, "webhook")
+
+    # ── per-camera state, for the operator's camera wall ───────────────────
+    def publish_camera(self, entity_id: str, name: str, hazard: str, confidence: float,
+                       online: bool, fps: float, last_detection: str | None,
+                       snapshot: str | None = None) -> None:
+        """One sensor per camera, so the wall can show each camera's own status
+        rather than only the most recent detection across all of them.
+
+        An operator watching six cameras needs to know WHICH one is burning;
+        a single global sensor cannot answer that.
+        """
+        slug = camera_slug(entity_id)
+        self._post(f"/states/sensor.firemex_cam_{slug}", {
+            "state": hazard,
+            "attributes": {
+                "friendly_name": f"FiremeX {name}",
+                "icon": "mdi:fire-alert" if hazard not in ("clear", OFFLINE_HAZARD) else (
+                    "mdi:cctv-off" if hazard == OFFLINE_HAZARD else "mdi:cctv"),
+                "camera_name": name,
+                "camera_entity": entity_id,
+                "hazard_type": hazard,
+                "confidence": f"{confidence:.0%}" if confidence else "—",
+                "confidence_raw": confidence,
+                "online": online,
+                "fps": fps,
+                "last_detection": last_detection,
+                # entity_picture makes Home Assistant render the annotated
+                # evidence frame wherever this sensor appears, with no extra
+                # card wiring.
+                "entity_picture": snapshot,
+                "snapshot": snapshot,
+            },
+        }, "camera sensor")
+
+    def publish_camera_offline(self, entity_id: str, name: str, timestamp: str,
+                               last_frame_age: float | None) -> None:
+        """A camera has stopped delivering frames. Raised as its own alert —
+        silence from a camera is indistinguishable from safety, and that is
+        exactly the failure a fire system must never make."""
+        payload = {
+            "hazard_type": OFFLINE_HAZARD,
+            "camera_name": name,
+            "entity_id": entity_id,
+            "confidence": 1.0,
+            "last_frame_age_s": last_frame_age,
+            "timestamp": timestamp,
+        }
+        self._post(f"/events/{OFFLINE_EVENT}", payload, "offline event")
+        self._post(f"/webhook/{HAZARD_WEBHOOK}", payload, "webhook")
 
     def _post(self, path: str, payload: dict, what: str) -> None:
         # One failing channel must never stop the others — a broken webhook

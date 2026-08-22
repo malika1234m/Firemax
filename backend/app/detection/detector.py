@@ -1,4 +1,6 @@
 import os
+import threading
+
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -85,6 +87,21 @@ class HazardDetector:
         self.model      = YOLO(model_path)
         self.threshold  = threshold if threshold is not None else DEFAULT_CONFIDENCE_THRESHOLD
         self._prev_gray = None   # previous frame for optical flow
+
+        # One detector is shared by every camera pipeline (see edge/agent.py),
+        # and each pipeline calls detect() from its own thread. Ultralytics
+        # builds its predictor and fuses the model lazily on the FIRST predict,
+        # so two cameras starting together race and one thread dies with
+        # "'Conv' object has no attribute 'bn'".
+        #
+        # That failure is especially bad here: only the DETECTION thread dies.
+        # The stream reader keeps running, so last_frame_age stays fresh and the
+        # camera goes on reporting itself online in the heartbeat while nothing
+        # is being detected on it — a camera that looks monitored and is not.
+        #
+        # Serialising inference also happens to be what you want on the shared
+        # hardware this runs on: two cameras cannot each take a full core.
+        self._model_lock = threading.Lock()
         print(f"[detector] Loaded: {model_path}  threshold={self.threshold}")
         print(f"[detector] Gas shimmer detection: ENABLED (optical flow)")
         print(f"[detector] Person-down detection: ENABLED (pose analysis)")
@@ -104,7 +121,8 @@ class HazardDetector:
 
     # ── YOLO detection ─────────────────────────────────────────────────
     def _yolo_detect(self, frame: np.ndarray) -> list[DetectionBox]:
-        results = self.model(frame, verbose=False)[0]
+        with self._model_lock:
+            results = self.model(frame, verbose=False)[0]
         boxes   = []
         for box in results.boxes:
             conf  = float(box.conf[0])
@@ -294,7 +312,8 @@ class HazardDetector:
         Uses YOLOv8 person detection + bounding box aspect ratio analysis.
         A standing person has height > width. A collapsed person has width > height.
         """
-        results = self.model(frame, verbose=False)[0]
+        with self._model_lock:
+            results = self.model(frame, verbose=False)[0]
         boxes   = []
         for box in results.boxes:
             label = results.names[int(box.cls[0])]

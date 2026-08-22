@@ -118,6 +118,14 @@ desktop.ini
 *.md
 !README.md
 
+# Add-on documentation is a SHIPPED PRODUCT FILE, not a write-up: Home
+# Assistant renders DOCS.md as the add-on's Documentation tab and CHANGELOG.md
+# in its update dialog. Without these tracked, customers install an add-on with
+# no instructions at all — and nothing warns you, because the rule above
+# excludes them silently.
+!addon/**/DOCS.md
+!addon/**/CHANGELOG.md
+
 # Named explicitly so they stay ignored even if the *.md rule above is relaxed.
 LOGBOOK*.md
 StudyNotes.*
