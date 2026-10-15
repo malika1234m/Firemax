@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1
+
+- **Cameras now work on Home Assistant OS.** Inside HA OS the add-on reaches
+  Home Assistant through the Supervisor's proxy, which waits for a response to
+  finish before passing it on — so the live MJPEG camera stream never arrived
+  and every camera was reported offline. Frames are now read as still images
+  (`/api/camera_proxy`), at the `process_fps` rate detection already runs at.
+- The camera-offline log line now says "no frame received yet" instead of
+  "no frames for Nones" when a camera has never delivered a picture.
+
 ## 1.2.0
 
 - **Licence key, and a free tier.** The add-on now installs and runs with no

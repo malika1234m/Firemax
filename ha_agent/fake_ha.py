@@ -45,6 +45,7 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/":          return self._json({"message": "API running."})
         if self.path == "/api/states":    return self._json(STATES)
         if self.path.startswith("/api/camera_proxy_stream/"): return self._mjpeg()
+        if self.path.startswith("/api/camera_proxy/"): return self._still()
         self._json({"error": "not found"}, 404)
 
     def do_POST(self):
@@ -53,6 +54,16 @@ class H(BaseHTTPRequestHandler):
         with open(RECEIPTS, "a") as fh:
             fh.write(json.dumps({"t": time.time(), "path": self.path, "body": body}) + "\n")
         self._json({"ok": True})
+
+    def _still(self):
+        """One JPEG, like Home Assistant's /api/camera_proxy/<entity>."""
+        cap = cv2.VideoCapture(VIDEO)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(time.time() * 10) % max(1, int(cap.get(cv2.CAP_PROP_FRAME_COUNT))))
+        ok, frame = cap.read(); cap.release()
+        ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        d = jpg.tobytes()
+        self.send_response(200); self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(d))); self.end_headers(); self.wfile.write(d)
 
     def _mjpeg(self):
         self.send_response(200)

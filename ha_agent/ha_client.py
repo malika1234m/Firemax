@@ -94,6 +94,19 @@ class HAClient:
         camera connection; this is a re-encoded view of it."""
         return f"{self.base_url}/camera_proxy_stream/{entity_id}"
 
+    def camera_snapshot(self, entity_id: str) -> bytes:
+        """One JPEG from Home Assistant's still-image proxy.
+
+        This is what the add-on actually reads frames with. Inside Home
+        Assistant OS the add-on reaches Core through the Supervisor's proxy
+        (http://supervisor/core/api), and that proxy reads a response to the
+        end before forwarding it — an endless MJPEG stream therefore never
+        arrives at all (the request just times out). A still image is a
+        complete response, so it passes through in milliseconds."""
+        r = self._client.get(f"{self.base_url}/camera_proxy/{entity_id}")
+        r.raise_for_status()
+        return r.content
+
     def open_stream(self, entity_id: str):
         """Context manager yielding a streaming MJPEG response."""
         return self._client.stream("GET", self.camera_stream_url(entity_id), timeout=None)
