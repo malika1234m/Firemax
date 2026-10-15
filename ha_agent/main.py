@@ -215,7 +215,9 @@ def reconcile(client, options, detector, pipelines: dict, states: dict, on_event
             detector, on_event,
             options.confidence_threshold, options.alert_cooldown_seconds,
             process_fps=options.process_fps,
-            reader_factory=reader_factory(client),
+            # Still images at the detection rate: the Supervisor proxy cannot
+            # carry an endless MJPEG stream (see HAClient.camera_snapshot).
+            reader_factory=reader_factory(client, poll_interval=1.0 / options.process_fps),
         )
         pipeline.start()
         pipelines[entity_id] = pipeline
@@ -346,8 +348,9 @@ def run():
                 if not online and past_grace and not st.offline_alerted:
                     st.offline_alerted = True
                     st.hazard = OFFLINE_HAZARD
-                    logger.warning(f"ALERT camera_offline on {st.name} — no frames for "
-                                   f"{health['last_frame_age_s']}s")
+                    age = health["last_frame_age_s"]
+                    logger.warning(f"ALERT camera_offline on {st.name} — "
+                                   + (f"no frames for {age}s" if age is not None else "no frame received yet"))
                     client.publish_camera_offline(entity_id, st.name, _now_iso(),
                                                   health["last_frame_age_s"])
                 elif online and st.offline_alerted:
