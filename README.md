@@ -6,6 +6,18 @@ automations (lights, locks, sirens), and notify staff and authorities by email/S
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design.
 
+## Install in Home Assistant
+
+[![Add the FiremeX repository to your Home Assistant.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fmalika1234m%2FFiremax)
+
+Needs Home Assistant OS or Supervised (the versions with an app store). The
+button opens your own Home Assistant and asks to add this repository; then
+install **FiremeX Fire & Smoke Detection (Local)** and press Start.
+
+Without the button: Settings → Apps → Install app → ⋮ → Repositories → Add →
+`https://github.com/malika1234m/Firemax`. Setup guide:
+[addon/firemex-local/DOCS.md](addon/firemex-local/DOCS.md).
+
 ## Repository layout
 
 | Path           | What it is                                                        |

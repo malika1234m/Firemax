@@ -40,6 +40,10 @@ from ha_agent.ha_stream import reader_factory        # noqa: E402
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
 logger = logging.getLogger("ha.main")
+# httpx logs every request at INFO. Frames are fetched as still images twice a
+# second, so those lines buried the HAZARD lines in the add-on's Log tab.
+# Failed requests are still reported — by our own warnings, not httpx's.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # How often to re-read Home Assistant's camera list, so a camera added in HA is
 # picked up without restarting the add-on.

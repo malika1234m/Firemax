@@ -22,7 +22,8 @@ nothing new is exposed on your network.
 1. Make sure your cameras appear in Home Assistant as `camera.*` entities.
 2. Install this add-on and press **Start**. That is the whole setup — every
    camera entity is watched by default.
-3. Watch the **Log** tab. A healthy start looks like:
+3. Watch the **Log** tab — type `HAZARD` in its search box to see only the
+   alerts. A healthy start looks like:
 
 ```
 FiremeX Home Assistant add-on v1.0.0 — fully local
