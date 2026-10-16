@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.2
+
+- **Quieter log.** Every still-image request was printed (two lines a second),
+  which buried the HAZARD lines. Only FiremeX's own messages are logged now;
+  a failed request still shows up as a warning.
+- **Security profile (AppArmor).** The add-on can now write only to its own
+  `/data`, the evidence folder in Home Assistant's config, and temporary
+  folders. Its own code is read-only. Tested on Home Assistant OS 18.3: no
+  blocked actions, detection unchanged.
+- **Icon and logo** in the app store instead of the blank placeholder.
+- Docs: install with one click from the README, and Home Assistant 2026.10's
+  new names (Apps, App store).
+
 ## 1.2.1
 
 - **Cameras now work on Home Assistant OS.** Inside HA OS the add-on reaches

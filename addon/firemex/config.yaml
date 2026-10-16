@@ -2,7 +2,7 @@
 #
 # This is a SECOND delivery route for the agent, not a second product: it runs
 # the exact same published image as edge/docker-compose.yml. Home Assistant
-# users install it from the Add-on Store instead of writing an edge.env and
+# users install it from the app store (formerly Add-on Store) instead of writing an edge.env and
 # running docker compose by hand.
 #
 # Requires Home Assistant OS or Supervised. Home Assistant Container has no

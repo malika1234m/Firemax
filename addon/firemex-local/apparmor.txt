@@ -1,0 +1,43 @@
+#include <tunables/global>
+
+# FiremeX (Local) — AppArmor profile.
+#
+# The add-on reads camera stills from Home Assistant, runs the model, and
+# publishes hazards back. So it may read and execute anything in its own image,
+# but WRITE only where that job needs to:
+#   /data            options.json and the downloaded model (survives updates)
+#   /homeassistant   www/firemex/ evidence snapshots (map: homeassistant_config)
+#   /tmp, /dev/shm   Python, torch and ultralytics scratch space
+#   /root            ultralytics' settings file
+# Everything else — the app's own code included — is read-only, so a
+# compromised dependency cannot rewrite the detector it runs inside.
+#
+# The Supervisor renames the profile to the add-on's slug when it loads it.
+profile firemex_local flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network inet,
+  network inet6,
+  network unix,
+  network netlink raw,
+
+  signal,
+
+  # Read and map anything in the image; execute only real program directories.
+  /** rm,
+  /{usr/,usr/local/,}{bin,sbin}/** ix,
+  /sbin/docker-init ix,
+
+  /data/{,**} rwk,
+  /homeassistant/{,**} rwk,
+  /tmp/{,**} rwk,
+  /dev/shm/{,**} rwk,
+  /root/{,**} rwk,
+  /run/{,**} rwk,
+  /dev/null rw,
+  /dev/tty rw,
+
+  deny mount,
+  deny /proc/sys/** w,
+  deny /sys/** w,
+}
