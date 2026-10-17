@@ -1,0 +1,34 @@
+<!doctype html>
+<!--
+  A stand-in for EZVIZ's player, for testing without a camera or EZVIZ account
+  (BRIDGE_FAKE=1). It exposes the same two things bridge.mjs uses from
+  player.html — window.bridgeState and window.grabFrame() — and draws a moving
+  test picture with a "fire" patch, so the whole chain after the EZVIZ cloud
+  (capture, MJPEG serving, Home Assistant, FiremeX) can be exercised.
+-->
+<html>
+<head><meta charset="utf-8"><title>FiremeX EZVIZ bridge — simulated player</title></head>
+<body style="margin:0;background:#000">
+<canvas id="c" width="1280" height="720"></canvas>
+<script>
+  const cfg = window.BRIDGE
+  const c = document.getElementById('c'), g = c.getContext('2d')
+  let t = 0
+  function draw() {
+    t++
+    g.fillStyle = '#2b3138'; g.fillRect(0, 0, 1280, 720)
+    g.fillStyle = '#5b6470'; g.fillRect(0, 520, 1280, 200)          // floor
+    const x = 300 + 200 * Math.sin(t / 20)
+    const grad = g.createRadialGradient(x, 470, 10, x, 470, 120)
+    grad.addColorStop(0, '#fff3a0'); grad.addColorStop(0.4, '#ff9b1a'); grad.addColorStop(1, 'rgba(200,40,0,0)')
+    g.fillStyle = grad; g.beginPath(); g.ellipse(x, 470, 90, 140, 0, 0, Math.PI * 2); g.fill()
+    g.fillStyle = '#fff'; g.font = '28px sans-serif'
+    g.fillText(`SIMULATED EZVIZ ${cfg.serial} ch${cfg.channel}  ${new Date().toISOString()}`, 24, 44)
+    requestAnimationFrame(draw)
+  }
+  draw()
+  window.bridgeState = { status: 'playing', error: null }
+  window.grabFrame = async () => c.toDataURL('image/jpeg', 0.8)
+</script>
+</body>
+</html>

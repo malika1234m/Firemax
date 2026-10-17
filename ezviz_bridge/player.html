@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  Runs EZVIZ's official web player (EZUIKit) for ONE camera inside a headless
+  browser. The player fetches the encrypted stream from the EZVIZ cloud and
+  decrypts it with the camera's verification code; bridge.mjs then pulls the
+  decoded pictures out with the player's own capturePicture().
+
+  Configuration arrives as window.BRIDGE (set by bridge.mjs before load).
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>FiremeX EZVIZ bridge</title>
+<style>html,body{margin:0;background:#000}#player{width:1280px;height:720px}</style>
+<script src="https://cdn.jsdelivr.net/npm/ezuikit-js@8.2.6/ezuikit.js" integrity="sha384-aqOLZ4K77TM0006giDmz2dWTwjPn9VXi1tI2+NMwiZumbIvCywAMWFfHqPIvXLY9" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="player"></div>
+<script>
+  const cfg = window.BRIDGE
+  window.bridgeState = { status: 'starting', error: null, played: false }
+
+  const url = `ezopen://open.ys7.com/${cfg.serial}/${cfg.channel}${cfg.hd ? '.hd' : ''}.live`
+
+  window.player = new EZUIKit.EZUIKitPlayer({
+    id: 'player',
+    accessToken: cfg.accessToken,
+    url,
+    // Encrypted cameras: the player decrypts with the device verification code.
+    validCode: cfg.verifyCode,
+    width: 1280,
+    height: 720,
+    audio: false,
+    // Accounts outside China live on a regional server; the token request
+    // tells us which (areaDomain), and the player must use the same one.
+    env: cfg.domain ? { domain: cfg.domain } : undefined,
+    handleSuccess: () => { window.bridgeState.status = 'playing'; window.bridgeState.played = true },
+    handleError: (err) => {
+      window.bridgeState.status = 'error'
+      window.bridgeState.error = err
+    },
+  })
+
+  // One decoded picture as base64 JPEG, using the player's own capture so we
+  // get exactly what it decrypted (reading a WebGL canvas directly can return
+  // a blank frame).
+  window.grabFrame = () => new Promise((resolve) => {
+    let done = false
+    const finish = (v) => { if (!done) { done = true; resolve(v) } }
+    try {
+      window.player.capturePicture('frame', (data) => {
+        const b64 = typeof data === 'string' ? data : (data && (data.base64 || data.data)) || null
+        finish(b64)
+      })
+    } catch (e) {
+      finish(null)
+    }
+    setTimeout(() => finish(null), 3000)
+  })
+</script>
+</body>
+</html>
