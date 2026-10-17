@@ -7,7 +7,8 @@ import test from 'node:test'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ezviz-bridge-'))
 process.env.OPTIONS_PATH = path.join(tmp, 'options.json')
-const { loadConfig, slugify } = await import('../config.mjs')
+process.env.BRIDGE_AUTH_PATH = path.join(tmp, 'bridge_auth.json')
+const { loadConfig, slugify, loadAuth } = await import('../config.mjs')
 const { getToken, _resetTokenCache } = await import('../ezviz.mjs')
 const { registerCamera, cameraUrls } = await import('../homeassistant.mjs')
 
@@ -57,6 +58,8 @@ test('token: success keeps the regional server, refusals are explained', async (
   await assert.rejects(getToken({ api: 'x', appKey: 'k2', appSecret: 's' }, bad), /10030/)
 })
 
+const AUTH = { username: 'firemex', password: 'p'.repeat(32) }
+
 function fakeHA(existing = []) {
   const calls = []
   const impl = async (url, init = {}) => {
@@ -72,21 +75,37 @@ function fakeHA(existing = []) {
 test('a camera is added to Home Assistant through the MJPEG config flow', async () => {
   const { impl, calls } = fakeHA()
   const cam = { id: 'front_door', name: 'Front Door' }
-  assert.equal(await registerCamera(cam, 8095, impl), 'added to Home Assistant')
+  assert.equal(await registerCamera(cam, 8095, AUTH, impl), 'added to Home Assistant')
   const submit = calls.find((c) => c.url.endsWith('/flow/f1')).body
   assert.equal(submit.name, 'Front Door')
   assert.match(submit.mjpeg_url, /:8095\/front_door\/stream\.mjpg$/)
   assert.match(submit.still_image_url, /:8095\/front_door\/snapshot\.jpg$/)
+  assert.deepEqual([submit.username, submit.password], [AUTH.username, AUTH.password])
   assert.equal(calls.find((c) => c.url.endsWith('/flow')).body.handler, 'mjpeg')
 })
 
 test('a camera already in Home Assistant is not added twice', async () => {
   const { impl, calls } = fakeHA([{ domain: 'mjpeg', title: 'Front Door' }])
-  assert.equal(await registerCamera({ id: 'front_door', name: 'Front Door' }, 8095, impl), 'already in Home Assistant')
+  assert.equal(await registerCamera({ id: 'front_door', name: 'Front Door' }, 8095, AUTH, impl), 'already in Home Assistant')
   assert.equal(calls.length, 1)                                // only the lookup
 })
 
 test('camera URLs use the add-on hostname Home Assistant can reach', () => {
   const u = cameraUrls({ id: 'gate' }, 'bd0c1f44-firemex-ezviz-bridge', 8095)
   assert.equal(u.mjpeg_url, 'http://bd0c1f44-firemex-ezviz-bridge:8095/gate/stream.mjpg')
+})
+
+
+test('bridge credentials are created once and kept in the add-on', () => {
+  const a = loadAuth(true)
+  assert.ok(a.password.length >= 24)
+  assert.deepEqual(loadAuth(true), a)                          // same after a restart
+  assert.notDeepEqual(loadAuth(false).password, a.password)    // dev: fresh each run
+})
+
+test('as an add-on it listens on the internal network; elsewhere only locally', () => {
+  writeOptions(good)
+  assert.equal(loadConfig({}).listenHost, '0.0.0.0')
+  fs.rmSync(process.env.OPTIONS_PATH)
+  assert.equal(loadConfig({ BRIDGE_FAKE: '1', EZVIZ_ENV_FILE: '/nonexistent' }).listenHost, '127.0.0.1')
 })

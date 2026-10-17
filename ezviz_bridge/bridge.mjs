@@ -17,6 +17,7 @@
 // add-on, otherwise from ~/.firemex-ezviz.env (one camera) for development.
 // BRIDGE_FAKE=1 swaps the EZVIZ player for a simulated one (fake_player.html),
 // so everything except the EZVIZ cloud can be tested without a camera.
+import crypto from 'node:crypto'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -32,7 +33,21 @@ const log = (...a) => console.log(new Date().toISOString(), ...a)
 // ── per-camera state: the newest decoded picture ───────────────────────────────
 const cams = new Map(CFG.cameras.map((c) => [c.id, { ...c, latest: null, state: 'starting', error: null, frames: 0 }]))
 
+// Every request needs the bridge's credentials. These URLs carry DECRYPTED
+// camera video, so being reachable must not be enough to watch it: other
+// add-ons share the internal network, and a development machine shares its
+// LAN. Home Assistant is given the credentials when the camera is added.
+const expected = Buffer.from('Basic ' + Buffer.from(`${CFG.auth.username}:${CFG.auth.password}`).toString('base64'))
+function authorised(req) {
+  const got = Buffer.from(req.headers.authorization || '')
+  return got.length === expected.length && crypto.timingSafeEqual(got, expected)
+}
+
 const server = http.createServer((req, res) => {
+  if (!authorised(req)) {
+    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="FiremeX EZVIZ bridge"' })
+    return res.end('authentication required')
+  }
   const [, id, file] = (req.url.split('?')[0]).split('/')
   if (id === 'status') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -127,8 +142,12 @@ async function keepRunning(cam) {
   }
 }
 
-server.listen(CFG.port, () => {
-  log(`bridge on :${CFG.port} — ${cams.size} camera(s)${CFG.fake ? ' (SIMULATED player)' : ''}`)
+// In the add-on, Home Assistant reaches the bridge over the internal network,
+// so it listens there (no port is published to the host). Anywhere else it
+// listens on this machine only.
+server.listen(CFG.port, CFG.listenHost, () => {
+  log(`bridge on ${CFG.listenHost}:${CFG.port} — ${cams.size} camera(s)${CFG.fake ? ' (SIMULATED player)' : ''}`)
+  if (!CFG.inAddon) log(`  credentials: ${CFG.auth.username} / ${CFG.auth.password}  (development only)`)
   for (const c of cams.values()) log(`  ${c.name}: /${c.id}/stream.mjpg  /${c.id}/snapshot.jpg`)
 })
 if (CFG.registerInHA) registerCameras(CFG, [...cams.values()]).catch((e) => log(`camera registration failed: ${e.message}`))

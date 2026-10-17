@@ -4,6 +4,7 @@
 // Supervisor writes from the add-on's Configuration tab. On a development
 // machine they come from ~/.firemex-ezviz.env (a single camera), so real keys
 // never have to live in the repository.
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -14,6 +15,23 @@ export const OPTIONS_PATH = process.env.OPTIONS_PATH || '/data/options.json'
 // so it must be stable and safe in a path.
 export function slugify(name) {
   return String(name).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'camera'
+}
+
+// Credentials for the bridge's own HTTP server: created once and kept in the
+// add-on's private /data, so Home Assistant's saved camera keeps working
+// across restarts. Off the add-on they are new on every run.
+export const AUTH_PATH = process.env.BRIDGE_AUTH_PATH || '/data/bridge_auth.json'
+
+export function loadAuth(persist) {
+  if (persist) {
+    try {
+      const a = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf8'))
+      if (a.username && a.password && a.password.length >= 24) return a
+    } catch { /* first start */ }
+  }
+  const a = { username: 'firemex', password: crypto.randomBytes(24).toString('base64url') }
+  if (persist) fs.writeFileSync(AUTH_PATH, JSON.stringify(a), { mode: 0o600 })
+  return a
 }
 
 function readEnvFile(file) {
@@ -28,8 +46,9 @@ function readEnvFile(file) {
 
 export function loadConfig(env = process.env) {
   const fake = env.BRIDGE_FAKE === '1'
+  const inAddon = fs.existsSync(OPTIONS_PATH)
   let opts
-  if (fs.existsSync(OPTIONS_PATH)) {
+  if (inAddon) {
     opts = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'))
   } else {
     const e = { ...readEnvFile(env.EZVIZ_ENV_FILE || path.join(os.homedir(), '.firemex-ezviz.env')), ...env }
@@ -73,6 +92,9 @@ export function loadConfig(env = process.env) {
     fps: Math.min(Math.max(Number(opts.fps) || 2, 0.2), 5),
     hd: Boolean(opts.hd),
     port: Number(env.BRIDGE_PORT || 8095),
+    inAddon,
+    listenHost: inAddon ? '0.0.0.0' : '127.0.0.1',
+    auth: loadAuth(inAddon),
     registerInHA: opts.register_in_home_assistant !== false && Boolean(env.SUPERVISOR_TOKEN),
     puppeteerPath: env.PUPPETEER_PATH || 'puppeteer-core',
     chromePath: env.CHROME_PATH || '',

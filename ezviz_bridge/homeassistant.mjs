@@ -30,7 +30,7 @@ export function cameraUrls(cam, host = os.hostname(), port = 8095) {
 
 // One camera. Home Assistant's MJPEG flow tests the address before saving, so
 // this is only called once the bridge has a picture to show it.
-export async function registerCamera(cam, port, fetchImpl = fetch) {
+export async function registerCamera(cam, port, auth, fetchImpl = fetch) {
   const urls = cameraUrls(cam, os.hostname(), port)
   const entries = await ha('/config/config_entries/entry', {}, fetchImpl)
   if (entries.some((e) => e.domain === 'mjpeg' && e.title === cam.name)) {
@@ -41,7 +41,8 @@ export async function registerCamera(cam, port, fetchImpl = fetch) {
   }, fetchImpl)
   const result = await ha(`/config/config_entries/flow/${flow.flow_id}`, {
     method: 'POST',
-    body: JSON.stringify({ name: cam.name, ...urls, username: '', password: '', verify_ssl: false }),
+    body: JSON.stringify({ name: cam.name, ...urls, username: auth.username, password: auth.password,
+                           verify_ssl: false }),
   }, fetchImpl)
   if (result.type === 'create_entry') return 'added to Home Assistant'
   if (result.type === 'abort' && result.reason === 'already_configured') return 'already in Home Assistant'
@@ -55,7 +56,7 @@ export async function registerCameras(cfg, cams) {
       for (let i = 0; i < 720 && !cam.latest; i++) await new Promise((r) => setTimeout(r, 5000))
       if (!cam.latest) return log(`${cam.name}: no picture yet, so not added to Home Assistant`)
       try {
-        log(`${cam.name}: ${await registerCamera(cam, cfg.port)} (camera.${cam.id})`)
+        log(`${cam.name}: ${await registerCamera(cam, cfg.port, cfg.auth)} (camera.${cam.id})`)
       } catch (e) {
         log(`${cam.name}: could not add to Home Assistant: ${e.message}`)
       }
