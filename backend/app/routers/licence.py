@@ -23,6 +23,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo.errors import DuplicateKeyError
 
 from app.database import get_db
 from app.licence_signing import sign_entitlement
@@ -97,28 +98,45 @@ async def validate_licence(body: LicenceCheck,
                              reason="Update the FiremeX add-on to 1.3.0 or later to use this licence")
 
     plan = org.get("plan", "trial")
+    limit = PLAN_LIMITS.get(plan, {}).get("max_installs", 1)
     now = datetime.now(timezone.utc)
-    activation = await db.licence_activations.find_one(
-        {"org_id": org["org_id"], "install_id": body.install_id})
+    seat = {"org_id": org["org_id"], "install_id": body.install_id}
 
-    if activation and activation.get("removed"):
+    # Claim first, then check the place in line. Counting first and inserting
+    # second let two new machines checking in at the same moment both see a
+    # free seat. The unique (org_id, install_id) index makes the claim atomic
+    # per installation; a concurrent duplicate just finds the row that won.
+    try:
+        await db.licence_activations.insert_one(
+            {**seat, "first_seen": now, "last_seen": now, "addon_version": body.addon_version})
+        created = True
+    except DuplicateKeyError:
+        created = False
+    activation = await db.licence_activations.find_one(seat)
+
+    if activation.get("removed"):
         return LicencePublic(valid=False, plan="free", organization=org.get("name"),
                              reason="This installation was removed from the licence by its owner")
 
-    if not activation:
-        limit = PLAN_LIMITS.get(plan, {}).get("max_installs", 1)
-        in_use = await db.licence_activations.count_documents(
-            {"org_id": org["org_id"], "removed": {"$ne": True}})
-        if in_use >= limit:
-            return LicencePublic(
-                valid=False, plan="free", organization=org.get("name"),
-                reason=(f"This licence is already active on {in_use} installation(s), the "
-                        f"limit for the {plan} plan. Remove one under Settings > Add-on Licence Key."))
-        await db.licence_activations.insert_one({
-            "org_id": org["org_id"], "install_id": body.install_id,
-            "first_seen": now, "last_seen": now, "addon_version": body.addon_version,
-        })
-    else:
+    # Only the earliest `limit` live installations hold a seat. Checked on EVERY
+    # validation, not just the first, so a downgrade (Pro's 5 to Starter's 1)
+    # takes effect on the installations beyond the new limit.
+    ahead = await db.licence_activations.count_documents({
+        "org_id": org["org_id"], "removed": {"$ne": True},
+        "$or": [{"first_seen": {"$lt": activation["first_seen"]}},
+                {"first_seen": activation["first_seen"], "_id": {"$lt": activation["_id"]}}],
+    })
+    if ahead >= limit:
+        if created:
+            # Do not keep a row for a machine that never got a seat: it would
+            # otherwise wait in line and take the next one freed.
+            await db.licence_activations.delete_one({"_id": activation["_id"]})
+        return LicencePublic(
+            valid=False, plan="free", organization=org.get("name"),
+            reason=(f"This licence is already active on {ahead} installation(s), the "
+                    f"limit for the {plan} plan. Remove one under Settings > Add-on Licence Key."))
+
+    if not created:
         await db.licence_activations.update_one(
             {"_id": activation["_id"]},
             {"$set": {"last_seen": now, "addon_version": body.addon_version}})
