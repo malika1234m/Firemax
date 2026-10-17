@@ -1,0 +1,9 @@
+# Extra exclusions for `railway up` (it also honours .gitignore).
+# Study material, videos and recordings: hundreds of MB that no service needs,
+# and on a nearly full disk the upload archive alone can fill it.
+project-documentation/
+*.mp4
+*.mov
+*.pdf
+*.docx
+LOGBOOK_*
