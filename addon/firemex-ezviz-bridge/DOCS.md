@@ -64,7 +64,7 @@ EZVIZ camera ─(encrypted)─► EZVIZ cloud ─► FiremeX EZVIZ Bridge ─►
 | `player error … nErrorCode 5` | Wrong verification code for that camera |
 | `no picture for 30 attempts` | Camera offline in the EZVIZ app, or the account region does not match the developer account |
 | A bridged camera shows *unavailable* after reinstalling this add-on | Reinstalling creates new bridge credentials. Delete that MJPEG camera under Settings → Devices & services, then restart this add-on — it adds the camera again |
-| `could not add to Home Assistant` | Add it by hand: Settings → Devices & services → Add integration → MJPEG IP Camera, with the two addresses printed at start |
+| `could not add to Home Assistant` | Add it by hand: Settings → Devices & services → Add integration → MJPEG IP Camera, with the addresses, username and password printed on the next log line (keep that line private) |
 
 ## Good to know
 
