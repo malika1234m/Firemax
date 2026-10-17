@@ -60,3 +60,6 @@ schema:
   register_in_home_assistant: bool
   # Advanced: token server; the right regional server is found automatically.
   api: "url?"
+  # Advanced: only needed to add a camera to Home Assistant BY HAND. Leave empty
+  # and the add-on uses its own generated password, which is never shown.
+  bridge_password: "password?"

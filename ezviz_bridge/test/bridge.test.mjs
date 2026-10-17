@@ -109,3 +109,28 @@ test('as an add-on it listens on the internal network; elsewhere only locally', 
   fs.rmSync(process.env.OPTIONS_PATH)
   assert.equal(loadConfig({ BRIDGE_FAKE: '1', EZVIZ_ENV_FILE: '/nonexistent' }).listenHost, '127.0.0.1')
 })
+
+
+test('an owner-chosen bridge password is used, and must be long enough', () => {
+  writeOptions({ ...good, bridge_password: 'my-own-password-123' })
+  assert.equal(loadConfig({}).auth.password, 'my-own-password-123')
+  writeOptions({ ...good, bridge_password: 'short' })
+  assert.throws(() => loadConfig({}), /at least 12 characters/)
+})
+
+test('the manual-setup log line never contains the password', async () => {
+  const lines = []
+  const orig = console.log
+  console.log = (...a) => lines.push(a.join(' '))
+  const failing = async () => ({ ok: false, status: 500, json: async () => ({}) })
+  const { registerCameras } = await import('../homeassistant.mjs')
+  const cam = { id: 'gate', name: 'Gate', latest: { jpeg: Buffer.alloc(1), at: 1 } }
+  const realFetch = globalThis.fetch
+  globalThis.fetch = failing
+  try {
+    await registerCameras({ port: 8095, auth: AUTH }, [cam])
+    await new Promise((r) => setTimeout(r, 50))
+  } finally { globalThis.fetch = realFetch; console.log = orig }
+  assert.ok(lines.some((l) => l.includes('add it by hand')))
+  assert.ok(!lines.some((l) => l.includes(AUTH.password)))
+})
