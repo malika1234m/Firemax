@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     SECRETS_ENCRYPTION_KEY: str = ""
 
+    # Ed25519 private key (base64 of 32 bytes) that signs Home Assistant add-on
+    # licence answers. Its public half is baked into the add-on image; see
+    # app/licence_signing.py. Unset = a throwaway dev key no add-on accepts.
+    LICENCE_SIGNING_KEY: str = ""
+
     # Platform (vendor) super-admin — internal FiremeX ops team only, NOT a
     # customer. If both are set, a platform admin with this email is created on
     # startup. This identity monitors the whole fleet across all tenants and is

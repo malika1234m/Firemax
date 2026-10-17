@@ -48,6 +48,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 # How often to re-read Home Assistant's camera list, so a camera added in HA is
 # picked up without restarting the add-on.
 DISCOVERY_INTERVAL = 60
+# How often the licence is re-resolved while running.
+LICENCE_RECHECK_INTERVAL = 24 * 3600
 # How often per-camera status is pushed, which is what the camera wall reads.
 CAMERA_PUBLISH_INTERVAL = 5
 
@@ -235,11 +237,13 @@ def run():
     logger.info(f"  detector={options.detector_mode}  threshold={options.confidence_threshold}  "
                 f"cooldown={options.alert_cooldown_seconds}s  model={options.model_path}")
 
-    # Resolved once, at startup. Home Assistant restarts an add-on whenever its
+    # Resolved at startup — Home Assistant restarts an add-on whenever its
     # Configuration tab is saved, so a newly pasted key takes effect the moment
-    # the customer saves it — without this loop having to poll a network service
-    # it cannot depend on.
-    entitlement = licence_module.resolve(options.licence_key)
+    # the customer saves it — and then re-resolved daily in the loop below, so a
+    # cancelled licence or an installation removed by its owner is noticed on a
+    # machine that never restarts. resolve() answers from its cache for a week,
+    # so the daily call costs no network round trip most days.
+    entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION)
     max_cameras = entitlement.get("max_cameras")
     logger.info(licence_module.describe(entitlement))
 
@@ -318,7 +322,7 @@ def run():
 
     client.publish_clear(_now_iso())
     cleared = True
-    last_discovery = last_publish = time.time()
+    last_discovery = last_publish = last_licence = time.time()
 
     while not stop.is_set():
         now = time.time()
@@ -372,6 +376,14 @@ def run():
                 client.publish_camera(entity_id, st.name, st.hazard, st.confidence,
                                       online, health["fps"], st.last_detection,
                                       st.snapshot_url)
+
+        if now - last_licence >= LICENCE_RECHECK_INTERVAL:
+            last_licence = now
+            entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION)
+            if entitlement.get("max_cameras") != max_cameras:
+                max_cameras = entitlement.get("max_cameras")
+                logger.info(licence_module.describe(entitlement))
+                last_discovery = 0          # apply the new camera limit now
 
         if now - last_discovery >= DISCOVERY_INTERVAL:
             last_discovery = now

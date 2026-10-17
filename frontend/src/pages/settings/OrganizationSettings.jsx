@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, Home, Server, Check, KeyRound, RefreshCw } from 'lucide-react'
+import { Building2, Home, Server, Check, KeyRound, RefreshCw, Monitor, X } from 'lucide-react'
 import { apiFetch, apiJson } from '../../lib/api'
 import { useToast } from '../../context/ToastContext'
 import { useConfirm } from '../../context/ConfirmContext'
@@ -39,11 +39,35 @@ export default function OrganizationSettings() {
   const [switching, setSwitching] = useState(false)
   const [licence, setLicence] = useState(null)
   const [rotating, setRotating] = useState(false)
+  const [installs, setInstalls] = useState(null)
 
   useEffect(() => { if (org) setName(org.name) }, [org])
+  const loadInstalls = () =>
+    apiFetch('/licence/me/activations').then(r => (r.ok ? r.json() : [])).then(setInstalls).catch(() => setInstalls([]))
   useEffect(() => {
     apiFetch('/licence/me').then(r => (r.ok ? r.json() : null)).then(setLicence).catch(() => {})
+    loadInstalls()
   }, [])
+
+  // Each plan allows a fixed number of installations. An entry the owner does
+  // not recognise means the key has been shared: removing it frees the seat and
+  // stops that machine taking it back (rotate the key to start completely fresh).
+  const removeInstall = async (install) => {
+    if (!await confirm({
+      title: 'Remove this installation?',
+      message: 'That Home Assistant drops to the one-camera free tier the next time it '
+             + 'checks its licence (within a week), and cannot re-activate with this key.',
+      danger: true,
+      confirmLabel: 'Remove',
+    })) return
+    try {
+      await apiJson(`/licence/me/activations/${install.install_id}`, { method: 'DELETE' })
+      toast({ type: 'success', message: 'Installation removed.' })
+      loadInstalls()
+    } catch (err) {
+      toast({ type: 'error', message: err.message || 'Could not remove the installation' })
+    }
+  }
 
   // Rotation has to be self-service: the key is a bearer credential pasted into
   // a config field, so sooner or later it lands in a screenshot or a support
@@ -51,8 +75,9 @@ export default function OrganizationSettings() {
   const rotateKey = async () => {
     if (!await confirm({
       title: 'Issue a new licence key?',
-      message: 'The current key stops working. Every add-on using it drops to the '
-             + 'one-camera free tier until you paste the new key into its Configuration tab.',
+      message: 'The current key stops working and every installation is removed. Each '
+             + 'add-on drops to the one-camera free tier until you paste the new key into '
+             + 'its Configuration tab.',
       danger: true,
       confirmLabel: 'Issue new key',
     })) return
@@ -60,6 +85,7 @@ export default function OrganizationSettings() {
     try {
       setLicence(await apiJson('/licence/me/rotate', { method: 'POST' }))
       toast({ type: 'success', message: 'New licence key issued.' })
+      loadInstalls()
     } catch (err) {
       toast({ type: 'error', message: err.message || 'Could not rotate the key' })
     } finally {
@@ -191,6 +217,41 @@ export default function OrganizationSettings() {
           </button>
           <p className="text-[11px] text-slate-600">
             Treat it like a password — anyone who has it can license their own install.
+          </p>
+        </div>
+
+        <div className="pt-2 border-t border-white/[0.06] space-y-2">
+          <h3 className="text-[11.5px] font-semibold text-slate-400">Installations using this key</h3>
+          {installs === null ? (
+            <p className="text-[11.5px] text-slate-600">Loading…</p>
+          ) : installs.length === 0 ? (
+            <p className="text-[11.5px] text-slate-600">
+              None yet. An add-on appears here the first time it checks this key.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {installs.map(i => (
+                <li key={i.install_id}
+                    className="flex items-center gap-3 bg-black/30 border border-white/[0.06] rounded-lg px-3 py-2">
+                  <Monitor size={13} className="text-slate-500 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-[11.5px] text-slate-300 truncate">{i.install_id}</p>
+                    <p className="text-[11px] text-slate-600">
+                      Add-on {i.addon_version || '?'} · last seen {new Date(i.last_seen).toLocaleString()}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => removeInstall(i)}
+                          className="inline-flex items-center gap-1 text-[11.5px] text-slate-400 hover:text-red-300
+                                     border border-white/[0.09] rounded-md px-2 py-1 transition-colors">
+                    <X size={11} /> Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-[11px] text-slate-600">
+            Your plan allows a limited number of installations. One you do not recognise means
+            the key was shared — remove it, or issue a new key.
           </p>
         </div>
       </div>

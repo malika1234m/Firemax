@@ -11,7 +11,7 @@ from app.main import app                       # noqa: E402
 from app.database import connect_db, close_db, get_db   # noqa: E402
 from app.rate_limit import _attempts            # noqa: E402
 
-TEST_COLLECTIONS = ["users", "alerts", "cameras", "shifts", "authority_contacts", "organizations", "password_reset_tokens", "demo_requests", "platform_admins", "plans", "complaints", "sites"]
+TEST_COLLECTIONS = ["users", "alerts", "cameras", "shifts", "authority_contacts", "organizations", "password_reset_tokens", "demo_requests", "platform_admins", "plans", "complaints", "sites", "licence_activations"]
 
 
 @pytest_asyncio.fixture(autouse=True)

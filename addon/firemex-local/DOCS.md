@@ -122,12 +122,18 @@ To watch every camera, paste your licence key into the `licence_key` option.
 You will find it in the FiremeX dashboard under **Get Started → Add your
 licence key**.
 
-The key is checked once against the FiremeX cloud and then cached in `/data`,
-so the add-on keeps running with no internet afterwards. If the licence server
-is ever unreachable, the cached answer is used — and if it cannot be resolved at
-all, the add-on drops to the free tier rather than stopping. It is a fire
-detector; it does not stop watching your building because a subscription server
-is down.
+The key is checked against the FiremeX cloud and the signed answer is cached in
+`/data`, so the add-on keeps running with no internet for up to 60 days. It is
+re-checked daily while running. If the licence server is ever unreachable, the
+cached answer is used — and if it cannot be resolved at all, the add-on drops to
+the free tier rather than stopping. It is a fire detector; it does not stop
+watching your building because a subscription server is down.
+
+Each Home Assistant using your key counts as one **installation**, and your plan
+allows a fixed number (Trial and Starter: 1, Pro: 5). You can see and remove
+installations in the dashboard under **Settings → Add-on Licence Key**. If the
+log says the licence is *already active* on another installation, remove the old
+one there — for example after reinstalling Home Assistant.
 
 ## Options
 

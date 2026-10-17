@@ -7,7 +7,7 @@ the Supervisor renders that to /data/options.json.
 import json
 import os
 
-ADDON_VERSION = "1.2.2"
+ADDON_VERSION = "1.3.0"
 
 OPTIONS_PATH = os.environ.get("OPTIONS_PATH", "/data/options.json")
 
