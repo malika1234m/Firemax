@@ -265,15 +265,49 @@ async def test_seat_cycling_is_capped(client):
     assert body["valid"] is False and "Too many new installations" in body["reason"]
 
 
-async def test_key_replacement_is_limited(client):
-    """Each new key resets the new-installation allowance, so replacing the key
-    over and over would allow seat cycling again: two replacements per period."""
+async def test_key_can_always_be_replaced_but_allowance_resets_are_limited(client):
+    """Revoking a leaked key must never be refused. Past two replacements per
+    period the key still changes — the old one dies — but no fresh
+    new-installation allowance is given, so replacing cannot cycle seats."""
     await signup(client)
+    granted = 0
+    for c in "cdefgh":
+        res = await client.post("/licence/me/rotate")
+        assert res.status_code == 200
+        key = res.json()["licence_key"]
+        granted += (await client.post("/licence/validate", json=_check(key, c * 32))).json()["valid"]
+    # Replacements 1 and 2 each start a new generation (one install each).
+    # Replacements 3-6 stay on generation 2, whose allowance is 1 seat + 2
+    # spare = 3 new installs: two more are granted, then the cap holds.
+    assert granted == 4
+    old = key
     assert (await client.post("/licence/me/rotate")).status_code == 200
-    assert (await client.post("/licence/me/rotate")).status_code == 200
-    res = await client.post("/licence/me/rotate")
-    assert res.status_code == 429
-    assert "support" in res.json()["detail"]
+    assert (await client.post("/licence/validate", json=_check(old, "q" * 32))).json()["valid"] is False
+
+
+async def test_racing_key_replacements_do_not_both_apply(client):
+    await signup(client)
+    before = await _key(client)
+    answers = await asyncio.gather(client.post("/licence/me/rotate"), client.post("/licence/me/rotate"))
+    assert {r.status_code for r in answers} <= {200, 409}
+    current = await _key(client)
+    assert current in [r.json()["licence_key"] for r in answers if r.status_code == 200]
+    assert current != before
+
+
+async def test_rows_from_before_key_generations_still_count(client, db):
+    """Activations stored before key generations existed have no key_gen field —
+    they must count towards the cap, not slip past it."""
+    await signup(client)
+    key = await _key(client)
+    org = await db.organizations.find_one({"licence_key": key})
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    for c in "rst":                                    # three legacy rows, all removed
+        await db.licence_activations.insert_one({"org_id": org["org_id"], "install_id": c * 32,
+                                                 "first_seen": now, "last_seen": now, "removed": True})
+    body = (await client.post("/licence/validate", json=_check(key, "u" * 32))).json()
+    assert body["valid"] is False and "Too many new installations" in body["reason"]
 
 
 async def test_leaked_key_cannot_lock_the_owner_out(client):
