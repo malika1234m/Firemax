@@ -1,4 +1,5 @@
 """Licensing for the fully-local Home Assistant add-on."""
+import asyncio
 import base64
 import json
 
@@ -211,3 +212,37 @@ async def test_malformed_install_id_is_rejected(client):
     res = await client.post("/licence/validate",
                             json={"licence_key": "fmx_x", "install_id": "../../etc"})
     assert res.status_code == 422
+
+
+async def test_simultaneous_new_installations_cannot_both_take_one_seat(client):
+    """Count-then-insert let two machines checking in together both see a free
+    seat. However the requests interleave, a trial ends with one seat taken."""
+    await signup(client)
+    key = await _key(client)
+    ids = [f"{c}" * 32 for c in "cdefgh"]
+    answers = await asyncio.gather(*(client.post("/licence/validate", json=_check(key, i)) for i in ids))
+    assert sum(r.json()["valid"] for r in answers) == 1
+    assert len((await client.get("/licence/me/activations")).json()) == 1
+
+
+async def test_same_installation_twice_at_once_is_not_an_error(client):
+    await signup(client)
+    key = await _key(client)
+    answers = await asyncio.gather(*(client.post("/licence/validate", json=_check(key)) for _ in range(4)))
+    assert all(r.status_code == 200 and r.json()["valid"] for r in answers)
+
+
+async def test_downgrade_takes_seats_back_from_extra_installations(client, db):
+    """Pro allows 5 installations, Starter 1. After a downgrade only the oldest
+    installation keeps its licence — the others are refused on their next check."""
+    await signup(client)
+    key = await _key(client)
+    await db.organizations.update_one({"licence_key": key},
+                                      {"$set": {"plan": "pro", "subscription_status": "active"}})
+    for i in (INSTALL_A, INSTALL_B):
+        assert (await client.post("/licence/validate", json=_check(key, i))).json()["valid"] is True
+
+    await db.organizations.update_one({"licence_key": key}, {"$set": {"plan": "starter"}})
+    assert (await client.post("/licence/validate", json=_check(key, INSTALL_A))).json()["valid"] is True
+    body = (await client.post("/licence/validate", json=_check(key, INSTALL_B))).json()
+    assert body["valid"] is False and "already active" in body["reason"]
