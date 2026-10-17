@@ -135,6 +135,17 @@ installations in the dashboard under **Settings → Add-on Licence Key**. If the
 log says the licence is *already active* on another installation, remove the old
 one there — for example after reinstalling Home Assistant.
 
+## EZVIZ cameras
+
+FiremeX watches any camera Home Assistant has. For EZVIZ there are two ways in:
+
+- **Video Encryption off** (simplest, works offline): enable RTSP in the EZVIZ
+  app and add Home Assistant's built-in **EZVIZ** integration.
+- **Video Encryption on**: install the **FiremeX EZVIZ Bridge** app from this
+  repository. It plays the camera with EZVIZ's own player and your
+  verification code, and adds it to Home Assistant for you. Needs internet and
+  an EZVIZ developer account — see that app's Documentation tab.
+
 ## Options
 
 | Option | What it does |

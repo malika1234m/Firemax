@@ -1,0 +1,62 @@
+# FiremeX EZVIZ Bridge — makes encrypted EZVIZ cameras usable in Home Assistant.
+#
+# EZVIZ cameras with Video Encryption ON only play in EZVIZ's own player. This
+# add-on runs that official player (headless), with the owner's EZVIZ developer
+# keys and each camera's verification code, and adds every camera to Home
+# Assistant as an MJPEG camera. FiremeX then watches it like any other camera.
+#
+# Needs internet: the video comes through the EZVIZ cloud.
+name: FiremeX EZVIZ Bridge
+description: >-
+  Plays encrypted EZVIZ cameras with EZVIZ's own player and adds them to Home
+  Assistant as normal cameras, so FiremeX can watch them.
+slug: firemex_ezviz_bridge
+version: "0.1.0"
+url: https://github.com/malika1234m/Firemax/tree/main/addon/firemex-ezviz-bridge
+
+image: ghcr.io/malika1234m/firemex-ezviz-bridge
+
+arch:
+  - amd64
+  - aarch64
+
+init: true
+boot: auto
+# Starts before FiremeX (application) so the cameras exist when it looks.
+startup: services
+
+# Used for one thing: adding each bridged camera through Home Assistant's own
+# MJPEG camera setup flow. Home Assistant reaches the bridge on the internal
+# network by the add-on's hostname, so no port is opened on the host.
+homeassistant_api: true
+
+options:
+  app_key: ""
+  app_secret: ""
+  cameras: []
+  fps: 2
+  hd: false
+  register_in_home_assistant: true
+
+schema:
+  # EZVIZ Open Platform console > Appkey management.
+  app_key: str
+  app_secret: password
+  # Each camera: a name (becomes camera.<name> in Home Assistant), its serial
+  # number and its 6-letter verification code from the sticker. Channel is 1
+  # for a single camera; NVR channels are 1, 2, 3...
+  cameras:
+    - name: str
+      serial: str
+      verify_code: password
+      channel: "int(1,64)?"
+  # Pictures per second taken from each camera. FiremeX checks 2 per second;
+  # more costs CPU (a browser decodes every stream) and EZVIZ bandwidth.
+  fps: float(0.2,5)
+  # High-definition stream. Off by default: detection does not need it and it
+  # roughly triples decoding work on a Raspberry Pi.
+  hd: bool
+  # Add the cameras to Home Assistant automatically (MJPEG IP Camera).
+  register_in_home_assistant: bool
+  # Advanced: token server; the right regional server is found automatically.
+  api: "url?"

@@ -1,0 +1,16 @@
+{
+  "name": "firemex-ezviz-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plays encrypted EZVIZ cameras with EZVIZ's own player and serves them to Home Assistant as MJPEG cameras.",
+  "type": "module",
+  "main": "bridge.mjs",
+  "scripts": {
+    "start": "node bridge.mjs",
+    "test": "node --test test"
+  },
+  "dependencies": {
+    "puppeteer-core": "23.11.1"
+  },
+  "engines": { "node": ">=20" }
+}
