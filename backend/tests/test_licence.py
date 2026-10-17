@@ -265,13 +265,32 @@ async def test_seat_cycling_is_capped(client):
     assert body["valid"] is False and "Too many new installations" in body["reason"]
 
 
-async def test_rotating_the_key_does_not_reset_the_cap(client):
+async def test_key_replacement_is_limited(client):
+    """Each new key resets the new-installation allowance, so replacing the key
+    over and over would allow seat cycling again: two replacements per period."""
     await signup(client)
-    granted = 0
-    for c in "cdefgh":
-        key = (await client.post("/licence/me/rotate")).json()["licence_key"]
-        granted += (await client.post("/licence/validate", json=_check(key, c * 32))).json()["valid"]
-    assert granted == 3
+    assert (await client.post("/licence/me/rotate")).status_code == 200
+    assert (await client.post("/licence/me/rotate")).status_code == 200
+    res = await client.post("/licence/me/rotate")
+    assert res.status_code == 429
+    assert "support" in res.json()["detail"]
+
+
+async def test_leaked_key_cannot_lock_the_owner_out(client):
+    """Whoever holds a leaked key can use up that key's new-installation
+    allowance — but replacing the key gives the owner a fresh one."""
+    await signup(client)
+    leaked = await _key(client)
+    for c in "cdefgh":                       # attacker churns, owner keeps removing
+        install = c * 32
+        if (await client.post("/licence/validate", json=_check(leaked, install))).json()["valid"]:
+            await client.delete(f"/licence/me/activations/{install}")
+    assert (await client.post("/licence/validate", json=_check(leaked, "y" * 32))).json()["valid"] is False
+
+    new = (await client.post("/licence/me/rotate")).json()["licence_key"]
+    assert (await client.post("/licence/validate", json=_check(new, "z" * 32))).json()["valid"] is True
+    # ...and the leaked key is dead.
+    assert (await client.post("/licence/validate", json=_check(leaked, "x" * 32))).json()["valid"] is False
 
 
 async def test_same_installation_rejoins_after_the_owner_rotates_the_key(client):

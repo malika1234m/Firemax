@@ -47,6 +47,10 @@ KEY_PREFIX = "fmx"
 # room to reinstall Home Assistant, not to cycle a key across machines.
 SPARE_ACTIVATIONS = 2
 
+# Key replacements allowed per entitlement period. Each one resets the
+# new-installation allowance, so this bounds how far a key can be stretched.
+MAX_ROTATIONS = 2
+
 
 def _new_key() -> str:
     return f"{KEY_PREFIX}_{secrets.token_urlsafe(24)}"
@@ -105,6 +109,7 @@ async def validate_licence(body: LicenceCheck,
     limit = PLAN_LIMITS.get(plan, {}).get("max_installs", 1)
     now = datetime.now(timezone.utc)
     seat = {"org_id": org["org_id"], "install_id": body.install_id}
+    key_gen = org.get("licence_key_gen", 0)
 
     # Claim first, then check the place in line. Counting first and inserting
     # second let two new machines checking in at the same moment both see a
@@ -112,7 +117,8 @@ async def validate_licence(body: LicenceCheck,
     # per installation; a concurrent duplicate just finds the row that won.
     try:
         await db.licence_activations.insert_one(
-            {**seat, "first_seen": now, "last_seen": now, "addon_version": body.addon_version})
+            {**seat, "first_seen": now, "last_seen": now, "addon_version": body.addon_version,
+             "key_gen": key_gen})
         created = True
     except DuplicateKeyError:
         created = False
@@ -128,11 +134,13 @@ async def validate_licence(body: LicenceCheck,
         # machine. Each removed machine kept its signed licence offline until it
         # expired, so one key could cover many machines. Cap NEW installations
         # per entitlement period at the plan's seats plus two spare, which still
-        # covers reinstalling Home Assistant. Removed and rotated-away rows stay
-        # on record, so neither removing nor rotating resets this count.
+        # covers reinstalling Home Assistant. Removed rows stay on record, so
+        # removing does not reset this count. It is counted per key generation:
+        # whoever holds a leaked key can use up the old key's allowance, but not
+        # the new one's, so rotating stays a working remedy for the owner.
         since = now - timedelta(seconds=ENTITLEMENT_SECONDS)
         recent = await db.licence_activations.count_documents(
-            {"org_id": org["org_id"], "first_seen": {"$gte": since}})
+            {"org_id": org["org_id"], "key_gen": key_gen, "first_seen": {"$gte": since}})
         if recent > limit + SPARE_ACTIVATIONS:
             await db.licence_activations.delete_one({"_id": activation["_id"]})
             return LicencePublic(
@@ -146,7 +154,8 @@ async def validate_licence(body: LicenceCheck,
         # gets here, so this restores a seat the owner meant to keep.
         await db.licence_activations.update_one(
             {"_id": activation["_id"]},
-            {"$set": {"removed": False}, "$unset": {"removed_by": "", "removed_at": ""}})
+            {"$set": {"removed": False, "key_gen": key_gen},
+             "$unset": {"removed_by": "", "removed_at": ""}})
         activation["removed"] = False
 
     if activation.get("removed"):
@@ -235,17 +244,30 @@ async def rotate_licence_key(admin: UserPublic = Depends(require_admin)):
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
+    # Rotation is the owner's remedy for a leaked key, so it resets the
+    # new-installation cap (that cap is per key generation, see validate).
+    # Unlimited rotation would reset it at will — seat cycling again — so it is
+    # limited.
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(seconds=ENTITLEMENT_SECONDS)
+    recent = [t for t in org.get("licence_rotations", [])
+              if (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) >= window_start]
+    if len(recent) >= MAX_ROTATIONS:
+        raise HTTPException(status_code=429, detail=(
+            f"The licence key was already replaced {len(recent)} times in the last "
+            f"{ENTITLEMENT_SECONDS // 86400} days. Contact FiremeX support to replace it again."))
+
     key = _new_key()
-    await db.organizations.update_one({"org_id": admin.org_id},
-                                      {"$set": {"licence_key": key}})
-    # A rotated key is a fresh start for seats: every installation must be given
-    # the new key, so the old ones (including any a leaked key had taken) are
-    # marked removed. Marked, not deleted — deleting reset the new-installation
-    # cap, so rotating repeatedly could license any number of machines.
+    await db.organizations.update_one(
+        {"org_id": admin.org_id},
+        {"$set": {"licence_key": key, "licence_rotations": recent + [now]},
+         "$inc": {"licence_key_gen": 1}})
+    # Every installation must be given the new key, so the old ones (including
+    # any a leaked key had taken) are marked removed — marked, not deleted, so
+    # the record stays. One the owner pastes the new key into rejoins its place.
     await db.licence_activations.update_many(
         {"org_id": admin.org_id, "removed": {"$ne": True}},
-        {"$set": {"removed": True, "removed_by": "rotation",
-                  "removed_at": datetime.now(timezone.utc)}})
+        {"$set": {"removed": True, "removed_by": "rotation", "removed_at": now}})
     entitled = org.get("subscription_status") in ENTITLED_STATUSES
     return LicenceKeyPublic(
         licence_key=key,
