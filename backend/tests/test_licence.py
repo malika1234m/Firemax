@@ -246,3 +246,50 @@ async def test_downgrade_takes_seats_back_from_extra_installations(client, db):
     assert (await client.post("/licence/validate", json=_check(key, INSTALL_A))).json()["valid"] is True
     body = (await client.post("/licence/validate", json=_check(key, INSTALL_B))).json()
     assert body["valid"] is False and "already active" in body["reason"]
+
+
+async def test_seat_cycling_is_capped(client):
+    """Activate, remove, activate the next machine... Each removed machine keeps
+    its signed licence offline, so the number of NEW installations per period is
+    capped at the plan's seats plus two spare (trial: 1 + 2)."""
+    await signup(client)
+    key = await _key(client)
+    granted = 0
+    for c in "cdefgh":
+        install = c * 32
+        if (await client.post("/licence/validate", json=_check(key, install))).json()["valid"]:
+            granted += 1
+            await client.delete(f"/licence/me/activations/{install}")
+    assert granted == 3
+    body = (await client.post("/licence/validate", json=_check(key, "z" * 32))).json()
+    assert body["valid"] is False and "Too many new installations" in body["reason"]
+
+
+async def test_rotating_the_key_does_not_reset_the_cap(client):
+    await signup(client)
+    granted = 0
+    for c in "cdefgh":
+        key = (await client.post("/licence/me/rotate")).json()["licence_key"]
+        granted += (await client.post("/licence/validate", json=_check(key, c * 32))).json()["valid"]
+    assert granted == 3
+
+
+async def test_same_installation_rejoins_after_the_owner_rotates_the_key(client):
+    """Rotating marks installations removed, but the owner pasting the NEW key
+    into the same Home Assistant must work — rotation is not a ban."""
+    await signup(client)
+    old = await _key(client)
+    assert (await client.post("/licence/validate", json=_check(old, INSTALL_A))).json()["valid"] is True
+    new = (await client.post("/licence/me/rotate")).json()["licence_key"]
+    assert (await client.post("/licence/validate", json=_check(new, INSTALL_A))).json()["valid"] is True
+    assert [r["install_id"] for r in (await client.get("/licence/me/activations")).json()] == [INSTALL_A]
+
+
+async def test_owner_removal_is_still_permanent_after_rotation(client):
+    await signup(client)
+    key = await _key(client)
+    await client.post("/licence/validate", json=_check(key, INSTALL_A))
+    await client.delete(f"/licence/me/activations/{INSTALL_A}")
+    new = (await client.post("/licence/me/rotate")).json()["licence_key"]
+    body = (await client.post("/licence/validate", json=_check(new, INSTALL_A))).json()
+    assert body["valid"] is False and "removed" in body["reason"]
