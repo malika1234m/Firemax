@@ -63,6 +63,7 @@ EZVIZ camera ─(encrypted)─► EZVIZ cloud ─► FiremeX EZVIZ Bridge ─►
 | `token request refused: 10005` | The AppKey is frozen — check the EZVIZ developer console |
 | `player error … nErrorCode 5` | Wrong verification code for that camera |
 | `no picture for 30 attempts` | Camera offline in the EZVIZ app, or the account region does not match the developer account |
+| A bridged camera shows *unavailable* after reinstalling this add-on | Reinstalling creates new bridge credentials. Delete that MJPEG camera under Settings → Devices & services, then restart this add-on — it adds the camera again |
 | `could not add to Home Assistant` | Add it by hand: Settings → Devices & services → Add integration → MJPEG IP Camera, with the two addresses printed at start |
 
 ## Good to know
@@ -74,5 +75,8 @@ EZVIZ camera ─(encrypted)─► EZVIZ cloud ─► FiremeX EZVIZ Bridge ─►
   never sent to a dashboard or a browser you use.
 - The add-on runs as root inside its own container, with Chromium's sandbox off
   (the container is the boundary), and opens no port on your network.
+- The decrypted pictures are password-protected: the add-on creates its own
+  credentials once and gives them to Home Assistant when it adds each camera,
+  so other add-ons on the internal network cannot watch them.
 - If you can, the simplest option is still to turn Video Encryption **off** and
   use Home Assistant's built-in EZVIZ integration — it works without internet.
