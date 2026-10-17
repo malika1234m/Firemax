@@ -130,9 +130,14 @@ FREE_TIER_MAX_CAMERAS = 1
 
 
 class LicenceCheck(BaseModel):
-    """Body of the add-on's licence check. Deliberately the only field: the
-    add-on has no account, so the key is the whole credential."""
+    """Body of the add-on's licence check. The add-on has no account, so the key
+    is the credential; `install_id` says WHICH installation is using it, so one
+    key cannot quietly license any number of machines."""
     licence_key: str
+    # Random id the add-on creates once in /data. Optional only so add-ons
+    # older than 1.3.0 still get a clear "please update" answer, not a 422.
+    install_id: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9-]{16,64}$")
+    addon_version: Optional[str] = Field(default=None, max_length=32)
 
 
 class LicencePublic(BaseModel):
@@ -147,6 +152,17 @@ class LicencePublic(BaseModel):
     max_cameras: Optional[int] = FREE_TIER_MAX_CAMERAS
     organization: Optional[str] = None
     reason: Optional[str] = None
+    # Present only on a valid answer: {payload, signature}, both base64. The
+    # add-on trusts the signed payload, never the plain fields above.
+    entitlement: Optional[dict] = None
+
+
+class LicenceActivationPublic(BaseModel):
+    """One installation using the org's licence key, for the owner to review."""
+    install_id: str
+    first_seen: datetime
+    last_seen: datetime
+    addon_version: Optional[str] = None
 
 
 class LicenceKeyPublic(BaseModel):
@@ -181,9 +197,9 @@ class OrganizationUpdate(BaseModel):
 # shown as a UI hint. Keys must match Organization.plan values and the
 # Stripe price lookup_keys used when bootstrapping products (see billing.py).
 PLAN_LIMITS = {
-    "trial":   {"max_cameras": 2,  "max_users": 3,   "label": "Trial"},
-    "starter": {"max_cameras": 5,  "max_users": 10,  "label": "Starter"},
-    "pro":     {"max_cameras": 50, "max_users": 100, "label": "Pro"},
+    "trial":   {"max_cameras": 2,  "max_users": 3,   "max_installs": 1, "label": "Trial"},
+    "starter": {"max_cameras": 5,  "max_users": 10,  "max_installs": 1, "label": "Starter"},
+    "pro":     {"max_cameras": 50, "max_users": 100, "max_installs": 5, "label": "Pro"},
 }
 
 

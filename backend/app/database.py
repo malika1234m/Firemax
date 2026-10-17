@@ -11,6 +11,8 @@ async def connect_db():
     db = client[settings.DB_NAME]
     await db.organizations.create_index("org_id", unique=True)
     await db.organizations.create_index("stripe_customer_id")
+    # One row per installation per org; also what /licence/validate looks up.
+    await db.licence_activations.create_index([("org_id", 1), ("install_id", 1)], unique=True)
 
     await db.alerts.create_index("timestamp")
     await db.alerts.create_index("org_id")

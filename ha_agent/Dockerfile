@@ -20,6 +20,9 @@ WORKDIR /app
 # onto different torch/ultralytics versions and detect differently.
 COPY edge/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+# Verifies the cloud's signed licence answers (ha_agent/licence.py). Only the
+# add-on needs it, so it is not in the edge agent's shared requirements.
+RUN pip install --no-cache-dir cryptography==43.0.1
 
 COPY edge/ ./
 COPY backend/app/ ./app/

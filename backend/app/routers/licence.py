@@ -11,6 +11,8 @@ Two endpoints, deliberately different in who may call them:
                              no session. Rate-limited, because it is an
                              unauthenticated lookup by secret.
   GET  /licence/me         — admin only. Shows the org its own key.
+  GET  /licence/me/activations, DELETE /licence/me/activations/{id}
+                           — admin only. The installations using the key.
 
 Without a valid key the add-on is not blocked; it drops to a one-camera free
 tier. That is a safety decision as much as a commercial one: this software's job
@@ -18,12 +20,14 @@ is noticing fires, and an expired card or an unreachable cloud must never be the
 reason a building stops being watched.
 """
 import secrets
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.database import get_db
-from app.models import (FREE_TIER_MAX_CAMERAS, LicenceCheck, LicenceKeyPublic,
-                        LicencePublic, UserPublic)
+from app.licence_signing import sign_entitlement
+from app.models import (FREE_TIER_MAX_CAMERAS, PLAN_LIMITS, LicenceActivationPublic,
+                        LicenceCheck, LicenceKeyPublic, LicencePublic, UserPublic)
 from app.rate_limit import rate_limiter
 from app.security import require_admin
 
@@ -61,11 +65,16 @@ async def _ensure_key(db, org: dict) -> str:
 @router.post("/validate", response_model=LicencePublic)
 async def validate_licence(body: LicenceCheck,
                            _rl=Depends(rate_limiter(30, 300))):
-    """Check a licence key. Public — add-ons in the field have no session.
+    """Check a licence key for one installation. Public — add-ons in the field
+    have no session.
 
     Answers the same shape whether the key is unknown, revoked or unpaid: the
     add-on only needs to know how many cameras it may watch, and a caller
     guessing keys should not learn which guesses named a real organization.
+
+    A valid answer carries a signed entitlement bound to `install_id`. Each
+    plan allows a fixed number of installations, so a key passed around stops
+    working on the extra machines, and the owner can see and remove them.
     """
     key = (body.licence_key or "").strip()
     if not key:
@@ -81,12 +90,66 @@ async def validate_licence(body: LicenceCheck,
                              organization=org.get("name"),
                              reason="Subscription is not active")
 
+    if not body.install_id:
+        # Add-ons before 1.3.0 send no installation id, so they cannot be held
+        # to the installation limit. They keep the free tier, never zero.
+        return LicencePublic(valid=False, plan="free", organization=org.get("name"),
+                             reason="Update the FiremeX add-on to 1.3.0 or later to use this licence")
+
+    plan = org.get("plan", "trial")
+    now = datetime.now(timezone.utc)
+    activation = await db.licence_activations.find_one(
+        {"org_id": org["org_id"], "install_id": body.install_id})
+
+    if activation and activation.get("removed"):
+        return LicencePublic(valid=False, plan="free", organization=org.get("name"),
+                             reason="This installation was removed from the licence by its owner")
+
+    if not activation:
+        limit = PLAN_LIMITS.get(plan, {}).get("max_installs", 1)
+        in_use = await db.licence_activations.count_documents(
+            {"org_id": org["org_id"], "removed": {"$ne": True}})
+        if in_use >= limit:
+            return LicencePublic(
+                valid=False, plan="free", organization=org.get("name"),
+                reason=(f"This licence is already active on {in_use} installation(s), the "
+                        f"limit for the {plan} plan. Remove one under Settings > Add-on Licence Key."))
+        await db.licence_activations.insert_one({
+            "org_id": org["org_id"], "install_id": body.install_id,
+            "first_seen": now, "last_seen": now, "addon_version": body.addon_version,
+        })
+    else:
+        await db.licence_activations.update_one(
+            {"_id": activation["_id"]},
+            {"$set": {"last_seen": now, "addon_version": body.addon_version}})
+
     # Paid tiers are unlimited; the number rather than the plan name is what the
     # add-on enforces, so plan definitions can change without a new image.
-    return LicencePublic(valid=True,
-                         plan=org.get("plan", "trial"),
-                         max_cameras=None,
-                         organization=org.get("name"))
+    return LicencePublic(valid=True, plan=plan, max_cameras=None,
+                         organization=org.get("name"),
+                         entitlement=sign_entitlement(body.install_id, plan, None, org.get("name")))
+
+
+@router.get("/me/activations", response_model=list[LicenceActivationPublic])
+async def my_activations(admin: UserPublic = Depends(require_admin)):
+    """Installations currently using the org's key, newest activity first."""
+    db = get_db()
+    rows = await db.licence_activations.find(
+        {"org_id": admin.org_id, "removed": {"$ne": True}}).sort("last_seen", -1).to_list(100)
+    return [LicenceActivationPublic(**r) for r in rows]
+
+
+@router.delete("/me/activations/{install_id}", status_code=204)
+async def remove_activation(install_id: str, admin: UserPublic = Depends(require_admin)):
+    """Free a seat. The installation is remembered as removed rather than
+    deleted, so a machine that still has the key cannot simply re-activate
+    itself — it would need the owner to rotate the key and re-add it."""
+    db = get_db()
+    res = await db.licence_activations.update_one(
+        {"org_id": admin.org_id, "install_id": install_id, "removed": {"$ne": True}},
+        {"$set": {"removed": True, "removed_at": datetime.now(timezone.utc)}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Installation not found")
 
 
 @router.get("/me", response_model=LicenceKeyPublic)
@@ -122,6 +185,9 @@ async def rotate_licence_key(admin: UserPublic = Depends(require_admin)):
     key = _new_key()
     await db.organizations.update_one({"org_id": admin.org_id},
                                       {"$set": {"licence_key": key}})
+    # A rotated key is a fresh start: every installation must be given the new
+    # key, so the old seats (including any a leaked key had taken) are dropped.
+    await db.licence_activations.delete_many({"org_id": admin.org_id})
     entitled = org.get("subscription_status") in ENTITLED_STATUSES
     return LicenceKeyPublic(
         licence_key=key,

@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.0
+
+- **Licence keys are tied to installations.** Each Home Assistant that uses a
+  key is recorded as an installation, and each plan allows a fixed number
+  (Trial and Starter: 1, Pro: 5). A key passed to someone else stops working
+  on the extra machine, which falls back to the free tier and says why in the
+  log. The owner sees every installation under Settings > Add-on Licence Key
+  and can remove one.
+- **Licence answers are signed.** The add-on only accepts a licence answer
+  carrying a valid signature from FiremeX, issued to this installation and not
+  expired. Editing the cached licence file, copying it to another machine, or
+  using a home-made licence server no longer unlocks anything.
+- The licence is re-checked daily while running, so a cancelled subscription
+  or a removed installation takes effect without a restart.
+- Unchanged: with no key, an invalid key or no internet, FiremeX still watches
+  one camera. A licence problem never stops detection completely. A valid
+  licence keeps working offline for up to 60 days.
+- Add-ons older than 1.3.0 can no longer use a paid licence: update to keep it.
+
 ## 1.2.2
 
 - **Quieter log.** Every still-image request was printed (two lines a second),
