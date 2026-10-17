@@ -58,12 +58,13 @@ export async function registerCameras(cfg, cams) {
       try {
         log(`${cam.name}: ${await registerCamera(cam, cfg.port, cfg.auth)} (camera.${cam.id})`)
       } catch (e) {
-        // Give everything needed to add it by hand. The add-on log is only
-        // visible to Home Assistant administrators; keep it out of screenshots.
+        // Everything needed to add it by hand — except the password, which is
+        // never logged: the owner sets their own as `bridge_password`.
         const u = cameraUrls(cam, os.hostname(), cfg.port)
         log(`${cam.name}: could not add to Home Assistant: ${e.message}`)
         log(`  add it by hand (MJPEG IP Camera): MJPEG URL ${u.mjpeg_url}  still image URL ` +
-            `${u.still_image_url}  username ${cfg.auth.username}  password ${cfg.auth.password}  (keep private)`)
+            `${u.still_image_url}  username ${cfg.auth.username}  password: set "bridge_password" ` +
+            `in this add-on's Configuration tab, restart it, and use that`)
       }
     })()
   }

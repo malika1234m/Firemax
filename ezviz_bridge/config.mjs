@@ -22,7 +22,10 @@ export function slugify(name) {
 // across restarts. Off the add-on they are new on every run.
 export const AUTH_PATH = process.env.BRIDGE_AUTH_PATH || '/data/bridge_auth.json'
 
-export function loadAuth(persist) {
+export function loadAuth(persist, chosenPassword = '') {
+  // An owner-chosen password (option bridge_password) wins, so a camera can be
+  // added by hand without the generated one ever being shown anywhere.
+  if (chosenPassword) return { username: 'firemex', password: chosenPassword }
   if (persist) {
     try {
       const a = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf8'))
@@ -71,6 +74,7 @@ export function loadConfig(env = process.env) {
   if (!fake && !opts.app_key) problems.push('app_key is empty')
   if (!fake && !opts.app_secret) problems.push('app_secret is empty')
   if (!cameras.length) problems.push('no cameras configured')
+  if (opts.bridge_password && String(opts.bridge_password).length < 12) problems.push('bridge_password must be at least 12 characters')
   const seen = new Set()
   for (const c of cameras) {
     if (!c.name) problems.push('a camera has no name')
@@ -94,7 +98,7 @@ export function loadConfig(env = process.env) {
     port: Number(env.BRIDGE_PORT || 8095),
     inAddon,
     listenHost: inAddon ? '0.0.0.0' : '127.0.0.1',
-    auth: loadAuth(inAddon),
+    auth: loadAuth(inAddon, opts.bridge_password || ''),
     registerInHA: opts.register_in_home_assistant !== false && Boolean(env.SUPERVISOR_TOKEN),
     puppeteerPath: env.PUPPETEER_PATH || 'puppeteer-core',
     chromePath: env.CHROME_PATH || '',
