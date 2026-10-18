@@ -7,7 +7,7 @@ the Supervisor renders that to /data/options.json.
 import json
 import os
 
-ADDON_VERSION = "1.3.0"
+ADDON_VERSION = "1.4.0"
 
 OPTIONS_PATH = os.environ.get("OPTIONS_PATH", "/data/options.json")
 
@@ -76,6 +76,17 @@ DEFAULTS = {
     # it DOES rewrite the FiremeX dashboard's views. Turn this off once you
     # have customised them, or your edits go back every restart.
     "provision_dashboard": True,
+    # EZVIZ cameras with Video Encryption ON. Home Assistant cannot show these
+    # at all, so the add-on plays them with EZVIZ's own player (ezviz_bridge/),
+    # using the owner's EZVIZ Open Platform keys and each camera's verification
+    # code, and adds each one to Home Assistant as an MJPEG camera — which
+    # FiremeX then watches like any other. Empty list = feature off.
+    "ezviz_app_key": "",
+    "ezviz_app_secret": "",
+    "ezviz_cameras": [],
+    "ezviz_fps": 2.0,
+    # Only needed to add an EZVIZ camera to Home Assistant by hand.
+    "ezviz_bridge_password": "",
 }
 
 

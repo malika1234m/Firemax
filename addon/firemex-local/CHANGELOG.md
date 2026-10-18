@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.0
+
+- **Encrypted EZVIZ cameras.** EZVIZ cameras with Video Encryption on only play
+  in EZVIZ's own player, so Home Assistant could not show them. FiremeX can now
+  run that official player for you, with your EZVIZ developer keys and each
+  camera's verification code, and adds every camera to Home Assistant — where
+  FiremeX watches it like any other. Set it up with the new `ezviz_` options;
+  see the Documentation tab. Off unless `ezviz_cameras` is filled in.
+- The bridge restarts by itself after any error, renews its EZVIZ token before
+  it expires, and serves the decrypted pictures only inside Home Assistant,
+  behind credentials it creates. Codes and passwords are never logged.
+- Larger image: it now contains a headless browser (Chromium) for the EZVIZ
+  player.
+
 ## 1.3.0
 
 - **Licence keys are tied to installations.** Each Home Assistant that uses a

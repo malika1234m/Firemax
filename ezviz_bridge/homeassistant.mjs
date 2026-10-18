@@ -63,8 +63,8 @@ export async function registerCameras(cfg, cams) {
         const u = cameraUrls(cam, os.hostname(), cfg.port)
         log(`${cam.name}: could not add to Home Assistant: ${e.message}`)
         log(`  add it by hand (MJPEG IP Camera): MJPEG URL ${u.mjpeg_url}  still image URL ` +
-            `${u.still_image_url}  username ${cfg.auth.username}  password: set "bridge_password" ` +
-            `in this add-on's Configuration tab, restart it, and use that`)
+            `${u.still_image_url}  username ${cfg.auth.username}  password: set "ezviz_bridge_password" ` +
+            `in the FiremeX Configuration tab, restart it, and use that`)
       }
     })()
   }

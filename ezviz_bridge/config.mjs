@@ -52,7 +52,14 @@ export function loadConfig(env = process.env) {
   const inAddon = fs.existsSync(OPTIONS_PATH)
   let opts
   if (inAddon) {
-    opts = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'))
+    // Inside the FiremeX add-on: its options carry the EZVIZ settings under an
+    // ezviz_ prefix (FiremeX's own `cameras` option means something else).
+    const o = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'))
+    opts = {
+      app_key: o.ezviz_app_key, app_secret: o.ezviz_app_secret, api: o.ezviz_api,
+      cameras: o.ezviz_cameras || [], fps: o.ezviz_fps, hd: false,
+      bridge_password: o.ezviz_bridge_password, register_in_home_assistant: true,
+    }
   } else {
     const e = { ...readEnvFile(env.EZVIZ_ENV_FILE || path.join(os.homedir(), '.firemex-ezviz.env')), ...env }
     opts = {
@@ -71,10 +78,10 @@ export function loadConfig(env = process.env) {
     verifyCode: String(c.verify_code || '').trim(), channel: Number(c.channel || 1),
   }))
   const problems = []
-  if (!fake && !opts.app_key) problems.push('app_key is empty')
-  if (!fake && !opts.app_secret) problems.push('app_secret is empty')
-  if (!cameras.length) problems.push('no cameras configured')
-  if (opts.bridge_password && String(opts.bridge_password).length < 12) problems.push('bridge_password must be at least 12 characters')
+  if (!fake && !opts.app_key) problems.push('ezviz_app_key is empty')
+  if (!fake && !opts.app_secret) problems.push('ezviz_app_secret is empty')
+  if (!cameras.length) problems.push('ezviz_cameras is empty')
+  if (opts.bridge_password && String(opts.bridge_password).length < 12) problems.push('ezviz_bridge_password must be at least 12 characters')
   const seen = new Set()
   for (const c of cameras) {
     if (!c.name) problems.push('a camera has no name')
@@ -84,8 +91,8 @@ export function loadConfig(env = process.env) {
     seen.add(c.id)
   }
   if (problems.length) {
-    throw new Error('EZVIZ bridge is not configured: ' + problems.join('; ') +
-      '. Fill in the Configuration tab (or ~/.firemex-ezviz.env).')
+    throw new Error('EZVIZ cameras are not set up: ' + problems.join('; ') +
+      '. Fix it in the FiremeX Configuration tab (or ~/.firemex-ezviz.env).')
   }
 
   return {
