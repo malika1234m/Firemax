@@ -24,6 +24,9 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 chromium fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 COPY --from=ezviz /usr/local/bin/node /usr/local/bin/node
+# The EZVIZ browser plays content from the internet, so it runs as this
+# unprivileged user (see ha_agent/ezviz.py), not as root.
+RUN useradd --system --no-create-home --home-dir /tmp/ezviz --shell /usr/sbin/nologin ezviz
 
 WORKDIR /app
 
@@ -40,7 +43,7 @@ COPY backend/app/ ./app/
 COPY ha_agent/ ./ha_agent/
 COPY --from=ezviz /ezviz_bridge/node_modules ./ezviz_bridge/node_modules
 COPY ezviz_bridge/package.json ezviz_bridge/bridge.mjs ezviz_bridge/config.mjs ezviz_bridge/ezviz.mjs \
-     ezviz_bridge/homeassistant.mjs ezviz_bridge/player.html ezviz_bridge/fake_player.html ./ezviz_bridge/
+     ezviz_bridge/player.html ezviz_bridge/fake_player.html ./ezviz_bridge/
 
 # /data is the add-on's persistent volume, so weights survive add-on updates.
 ENV MODEL_PATH=/data/fire_model.pt \
