@@ -32,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from ha_agent import ezviz as ezviz_module          # noqa: E402
 from ha_agent import licence as licence_module      # noqa: E402
 from ha_agent import options as opts_module          # noqa: E402
 from ha_agent.ha_client import HAClient, OFFLINE_HAZARD  # noqa: E402
@@ -320,6 +321,14 @@ def run():
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
 
+    # Encrypted EZVIZ cameras: the bridge plays them with EZVIZ's own player
+    # and adds each to Home Assistant, where camera discovery (below) finds
+    # them within a minute. Off unless ezviz_cameras is filled in.
+    ezviz_bridge = None
+    if ezviz_module.wanted(options):
+        logger.info(f"EZVIZ: starting the bridge for {len(options.ezviz_cameras)} camera(s)")
+        ezviz_bridge = ezviz_module.Bridge(stop).start()
+
     client.publish_clear(_now_iso())
     cleared = True
     last_discovery = last_publish = last_licence = time.time()
@@ -398,6 +407,8 @@ def run():
     logger.info("shutting down…")
     for p in pipelines.values():
         p.stop()
+    if ezviz_bridge:
+        ezviz_bridge.stop()
     client.close()
 
 

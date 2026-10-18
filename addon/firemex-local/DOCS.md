@@ -137,14 +137,80 @@ one there — for example after reinstalling Home Assistant.
 
 ## EZVIZ cameras
 
-FiremeX watches any camera Home Assistant has. For EZVIZ there are two ways in:
+FiremeX watches any camera Home Assistant has. EZVIZ cameras come in two ways:
 
-- **Video Encryption off** (simplest, works offline): enable RTSP in the EZVIZ
-  app and add Home Assistant's built-in **EZVIZ** integration.
-- **Video Encryption on**: install the **FiremeX EZVIZ Bridge** app from this
-  repository. It plays the camera with EZVIZ's own player and your
-  verification code, and adds it to Home Assistant for you. Needs internet and
-  an EZVIZ developer account — see that app's Documentation tab.
+**Video Encryption off** (simplest, works without internet): in the EZVIZ app
+turn on RTSP (Settings → LAN Live View → your camera → Local Server Settings),
+then add Home Assistant's built-in **EZVIZ** integration. FiremeX finds the
+camera like any other.
+
+**Video Encryption on**: Home Assistant cannot show these at all — the video is
+locked with the camera's 6-letter verification code and only plays in EZVIZ's
+own player. FiremeX can run that player for you:
+
+```
+EZVIZ camera ─(encrypted)─► EZVIZ cloud ─► FiremeX (EZVIZ's own player + your code)
+                                         ─► camera.<name> in Home Assistant ─► FiremeX detection
+```
+
+Nothing is hacked: it is EZVIZ's official player, used with your own EZVIZ
+developer keys and your cameras' verification codes.
+
+**You need**
+
+1. An **EZVIZ Open Platform developer account** in the **same region** as your
+   EZVIZ app account. In its console open **Appkey management**, copy the
+   **AppKey**, press **Check** and copy the **AppSecret**. The free trial covers
+   10 devices and 3 cameras streaming at once for 120 days; then a paid plan.
+2. Each camera's **serial number** and **verification code** — on the sticker
+   under the camera, and in the EZVIZ app under device information.
+3. The camera **online in the EZVIZ app**, and **internet** for this machine:
+   the video comes through the EZVIZ cloud. If the internet drops, FiremeX
+   raises a *camera offline* alert for these cameras.
+
+**Setup** — in this add-on's **Configuration** tab:
+
+```yaml
+ezviz_app_key: <AppKey>
+ezviz_app_secret: <AppSecret>
+ezviz_cameras:
+  - name: Front Door
+    serial: BC1234567
+    verify_code: ABCDEF
+```
+
+Save. The add-on restarts, and the Log shows:
+
+```
+EZVIZ: starting the bridge for 1 camera(s)
+Front Door: playing — frames flowing
+Front Door: added to Home Assistant (camera.front_door)
+```
+
+Within a minute FiremeX starts watching `camera.front_door`. If you limit
+detection with the `cameras` option, add `camera.front_door` to that list.
+
+**If something is wrong**
+
+| Log says | What to do |
+|---|---|
+| `EZVIZ token request refused: 10017` / `10030` | AppKey or AppSecret is wrong — copy them again |
+| `EZVIZ token request refused: 10005` | The AppKey is frozen — check the EZVIZ developer console |
+| `player error … nErrorCode 5` | Wrong verification code for that camera |
+| `no picture for 30 attempts` | Camera offline in the EZVIZ app, or the account region does not match the developer account |
+| `EZVIZ cameras are not set up: …` | The line says which setting is missing; fix it and save |
+| `could not add to Home Assistant` | Set `ezviz_bridge_password` (12+ characters), save, then add it by hand: Settings → Devices & services → Add integration → MJPEG IP Camera, with the addresses and username from the next log line and that password |
+| An EZVIZ camera shows *unavailable* after reinstalling FiremeX | Reinstalling creates new internal credentials: delete that MJPEG camera under Settings → Devices & services and restart FiremeX — it is added again |
+
+**Good to know**
+
+- **CPU:** each EZVIZ camera is decoded by a browser inside the add-on. A
+  Raspberry Pi 4 manages about two at the default 2 pictures per second.
+- **Delay:** pictures arrive a few seconds behind real time (cloud round trip).
+- **Privacy:** verification codes stay in this add-on's settings and are never
+  sent to a dashboard or browser. The decrypted pictures are only served inside
+  Home Assistant's internal network, behind credentials the add-on creates and
+  gives to Home Assistant; no port is opened on your network.
 
 ## Options
 

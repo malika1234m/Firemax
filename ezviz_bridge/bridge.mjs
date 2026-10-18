@@ -27,7 +27,15 @@ import { getToken } from './ezviz.mjs'
 import { registerCameras } from './homeassistant.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const CFG = loadConfig()
+let CFG
+try {
+  CFG = loadConfig()
+} catch (e) {
+  // A settings problem is not fixed by restarting: say it once, plainly, and
+  // exit with 2 so the FiremeX add-on does not keep relaunching the bridge.
+  console.log(e.message)
+  process.exit(2)
+}
 const log = (...a) => console.log(new Date().toISOString(), ...a)
 
 // ── per-camera state: the newest decoded picture ───────────────────────────────
@@ -85,6 +93,10 @@ async function getBrowser() {
   if (browser?.connected) return browser
   browser = await puppeteer.launch({
     headless: true,
+    // We handle stop signals ourselves (below). Puppeteer's own handlers close
+    // the browser but keep Node running, so the player was simply relaunched
+    // and FiremeX's shutdown had to wait and then kill the bridge.
+    handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false,
     executablePath: CFG.chromePath || undefined,
     args: ['--no-sandbox', '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
   })
@@ -150,5 +162,14 @@ server.listen(CFG.port, CFG.listenHost, () => {
   if (!CFG.inAddon) log(`  credentials: ${CFG.auth.username} / ${CFG.auth.password}  (development only)`)
   for (const c of cams.values()) log(`  ${c.name}: /${c.id}/stream.mjpg  /${c.id}/snapshot.jpg`)
 })
+// Stop cleanly when FiremeX (or the container) asks: close the browser, exit.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, async () => {
+    log(`stopping (${sig})`)
+    server.close()
+    await browser?.close().catch(() => {})
+    process.exit(0)
+  })
+}
 if (CFG.registerInHA) registerCameras(CFG, [...cams.values()]).catch((e) => log(`camera registration failed: ${e.message}`))
 for (const cam of cams.values()) keepRunning(cam)

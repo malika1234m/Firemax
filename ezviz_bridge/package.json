@@ -2,7 +2,7 @@
   "name": "firemex-ezviz-bridge",
   "version": "0.1.0",
   "private": true,
-  "description": "Plays encrypted EZVIZ cameras with EZVIZ's own player and serves them to Home Assistant as MJPEG cameras.",
+  "description": "Part of the FiremeX Home Assistant add-on: plays encrypted EZVIZ cameras with EZVIZ's own player and adds them to Home Assistant as MJPEG cameras.",
   "type": "module",
   "main": "bridge.mjs",
   "scripts": {

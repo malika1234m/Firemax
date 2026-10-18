@@ -13,8 +13,11 @@ const { getToken, _resetTokenCache } = await import('../ezviz.mjs')
 const { registerCamera, cameraUrls } = await import('../homeassistant.mjs')
 
 const writeOptions = (o) => fs.writeFileSync(process.env.OPTIONS_PATH, JSON.stringify(o))
+// As the FiremeX add-on's options.json carries them (ezviz_ prefix).
 const good = {
-  app_key: 'k', app_secret: 's', cameras: [{ name: 'Front Door', serial: 'bc1234567', verify_code: 'ABCDEF' }],
+  cameras: ['camera.something_else'],                         // FiremeX's own option — ignored here
+  ezviz_app_key: 'k', ezviz_app_secret: 's',
+  ezviz_cameras: [{ name: 'Front Door', serial: 'bc1234567', verify_code: 'ABCDEF' }],
 }
 
 test('slugify makes stable, path-safe ids', () => {
@@ -24,7 +27,7 @@ test('slugify makes stable, path-safe ids', () => {
 })
 
 test('add-on options become cameras', () => {
-  writeOptions({ ...good, fps: 9 })
+  writeOptions({ ...good, ezviz_fps: 9 })
   const cfg = loadConfig({})
   assert.equal(cfg.cameras[0].id, 'front_door')
   assert.equal(cfg.cameras[0].serial, 'BC1234567')            // upper-cased
@@ -34,14 +37,14 @@ test('add-on options become cameras', () => {
 })
 
 test('missing keys are reported in plain words, all at once', () => {
-  writeOptions({ app_key: '', app_secret: '', cameras: [{ name: 'Gate', serial: 'x', verify_code: '' }] })
+  writeOptions({ ezviz_app_key: '', ezviz_app_secret: '', ezviz_cameras: [{ name: 'Gate', serial: 'x', verify_code: '' }] })
   assert.throws(() => loadConfig({}), (e) =>
-    /app_key is empty/.test(e.message) && /app_secret is empty/.test(e.message) &&
+    /ezviz_app_key is empty/.test(e.message) && /ezviz_app_secret is empty/.test(e.message) &&
     /does not look like an EZVIZ serial/.test(e.message) && /verify_code is empty/.test(e.message))
 })
 
 test('two cameras with the same name are refused', () => {
-  writeOptions({ ...good, cameras: [good.cameras[0], { ...good.cameras[0], serial: 'BC7654321' }] })
+  writeOptions({ ...good, ezviz_cameras: [good.ezviz_cameras[0], { ...good.ezviz_cameras[0], serial: 'BC7654321' }] })
   assert.throws(() => loadConfig({}), /both called/)
 })
 
@@ -112,9 +115,9 @@ test('as an add-on it listens on the internal network; elsewhere only locally', 
 
 
 test('an owner-chosen bridge password is used, and must be long enough', () => {
-  writeOptions({ ...good, bridge_password: 'my-own-password-123' })
+  writeOptions({ ...good, ezviz_bridge_password: 'my-own-password-123' })
   assert.equal(loadConfig({}).auth.password, 'my-own-password-123')
-  writeOptions({ ...good, bridge_password: 'short' })
+  writeOptions({ ...good, ezviz_bridge_password: 'short' })
   assert.throws(() => loadConfig({}), /at least 12 characters/)
 })
 

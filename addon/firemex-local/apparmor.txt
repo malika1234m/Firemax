@@ -8,7 +8,7 @@
 #   /data            options.json and the downloaded model (survives updates)
 #   /homeassistant   www/firemex/ evidence snapshots (map: homeassistant_config)
 #   /tmp, /dev/shm   Python, torch and ultralytics scratch space
-#   /root            ultralytics' settings file
+#   /root            ultralytics' settings file, Chromium's profile (EZVIZ)
 # Everything else — the app's own code included — is read-only, so a
 # compromised dependency cannot rewrite the detector it runs inside.
 #
@@ -27,6 +27,8 @@ profile firemex_local flags=(attach_disconnected,mediate_deleted) {
   /** rm,
   /{usr/,usr/local/,}{bin,sbin}/** ix,
   /sbin/docker-init ix,
+  # EZVIZ support: /usr/bin/chromium is a launcher for the real browser here.
+  /usr/lib/chromium/** ix,
 
   /data/{,**} rwk,
   /homeassistant/{,**} rwk,
