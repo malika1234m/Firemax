@@ -327,7 +327,12 @@ def run():
     ezviz_bridge = None
     if ezviz_module.wanted(options):
         logger.info(f"EZVIZ: starting the bridge for {len(options.ezviz_cameras)} camera(s)")
-        ezviz_bridge = ezviz_module.Bridge(stop).start()
+        ezviz_bridge = ezviz_module.Bridge(stop, options).start()
+        # Adding them to Home Assistant needs the Supervisor token, so it is
+        # done here rather than by the browser-side bridge.
+        threading.Thread(target=ezviz_module.register_when_playing,
+                         args=(client, ezviz_bridge, stop), daemon=True,
+                         name="ezviz-register").start()
 
     client.publish_clear(_now_iso())
     cleared = True

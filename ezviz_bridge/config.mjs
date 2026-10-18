@@ -1,40 +1,22 @@
 // Settings for the EZVIZ bridge.
 //
-// As a Home Assistant add-on they come from /data/options.json, which the
-// Supervisor writes from the add-on's Configuration tab. On a development
-// machine they come from ~/.firemex-ezviz.env (a single camera), so real keys
-// never have to live in the repository.
+// Inside the FiremeX add-on the bridge runs as an unprivileged user and gets
+// everything it needs from its environment, set by ha_agent/ezviz.py:
+//   BRIDGE_CONFIG_JSON   {app_key, app_secret, api, cameras, fps}
+//   BRIDGE_USERNAME / BRIDGE_PASSWORD   credentials for its own HTTP server
+// It reads no file in /data and never sees the Home Assistant token.
+//
+// On a development machine the settings come from ~/.firemex-ezviz.env (one
+// camera) instead, so real keys never live in the repository.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-export const OPTIONS_PATH = process.env.OPTIONS_PATH || '/data/options.json'
-
 // "Loading Dock 2" -> "loading_dock_2". Used in URLs and Home Assistant names,
-// so it must be stable and safe in a path.
+// so it must be stable and safe in a path. Same rule as ha_agent/ezviz.py.
 export function slugify(name) {
-  return String(name).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'camera'
-}
-
-// Credentials for the bridge's own HTTP server: created once and kept in the
-// add-on's private /data, so Home Assistant's saved camera keeps working
-// across restarts. Off the add-on they are new on every run.
-export const AUTH_PATH = process.env.BRIDGE_AUTH_PATH || '/data/bridge_auth.json'
-
-export function loadAuth(persist, chosenPassword = '') {
-  // An owner-chosen password (option bridge_password) wins, so a camera can be
-  // added by hand without the generated one ever being shown anywhere.
-  if (chosenPassword) return { username: 'firemex', password: chosenPassword }
-  if (persist) {
-    try {
-      const a = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf8'))
-      if (a.username && a.password && a.password.length >= 24) return a
-    } catch { /* first start */ }
-  }
-  const a = { username: 'firemex', password: crypto.randomBytes(24).toString('base64url') }
-  if (persist) fs.writeFileSync(AUTH_PATH, JSON.stringify(a), { mode: 0o600 })
-  return a
+  return String(name).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'camera'
 }
 
 function readEnvFile(file) {
@@ -49,17 +31,10 @@ function readEnvFile(file) {
 
 export function loadConfig(env = process.env) {
   const fake = env.BRIDGE_FAKE === '1'
-  const inAddon = fs.existsSync(OPTIONS_PATH)
+  const inAddon = Boolean(env.BRIDGE_CONFIG_JSON)
   let opts
   if (inAddon) {
-    // Inside the FiremeX add-on: its options carry the EZVIZ settings under an
-    // ezviz_ prefix (FiremeX's own `cameras` option means something else).
-    const o = JSON.parse(fs.readFileSync(OPTIONS_PATH, 'utf8'))
-    opts = {
-      app_key: o.ezviz_app_key, app_secret: o.ezviz_app_secret, api: o.ezviz_api,
-      cameras: o.ezviz_cameras || [], fps: o.ezviz_fps, hd: false,
-      bridge_password: o.ezviz_bridge_password, register_in_home_assistant: true,
-    }
+    opts = JSON.parse(env.BRIDGE_CONFIG_JSON)
   } else {
     const e = { ...readEnvFile(env.EZVIZ_ENV_FILE || path.join(os.homedir(), '.firemex-ezviz.env')), ...env }
     opts = {
@@ -68,8 +43,7 @@ export function loadConfig(env = process.env) {
         ? [{ name: e.EZVIZ_NAME || 'EZVIZ Camera', serial: e.EZVIZ_SERIAL || 'FAKE00001',
              verify_code: e.EZVIZ_VERIFY_CODE || 'ABCDEF', channel: Number(e.EZVIZ_CHANNEL || 1) }]
         : [],
-      fps: Number(e.BRIDGE_FPS || 2), hd: e.BRIDGE_HD === '1',
-      register_in_home_assistant: false,
+      fps: Number(e.BRIDGE_FPS || 2),
     }
   }
 
@@ -95,18 +69,25 @@ export function loadConfig(env = process.env) {
       '. Fix it in the FiremeX Configuration tab (or ~/.firemex-ezviz.env).')
   }
 
+  // In the add-on the credentials come from FiremeX (which gives the same ones
+  // to Home Assistant); elsewhere they are new on every run.
+  const auth = (env.BRIDGE_USERNAME && env.BRIDGE_PASSWORD)
+    ? { username: env.BRIDGE_USERNAME, password: env.BRIDGE_PASSWORD }
+    : { username: 'firemex', password: crypto.randomBytes(24).toString('base64url') }
+
   return {
     fake,
     appKey: opts.app_key, appSecret: opts.app_secret,
     api: String(opts.api || 'https://open.ezvizlife.com').replace(/\/$/, ''),
     cameras,
     fps: Math.min(Math.max(Number(opts.fps) || 2, 0.2), 5),
-    hd: Boolean(opts.hd),
+    hd: false,
     port: Number(env.BRIDGE_PORT || 8095),
     inAddon,
+    // In the add-on Home Assistant reaches the bridge over the internal
+    // network (no port is published on the host); elsewhere this machine only.
     listenHost: inAddon ? '0.0.0.0' : '127.0.0.1',
-    auth: loadAuth(inAddon, opts.bridge_password || ''),
-    registerInHA: opts.register_in_home_assistant !== false && Boolean(env.SUPERVISOR_TOKEN),
+    auth,
     puppeteerPath: env.PUPPETEER_PATH || 'puppeteer-core',
     chromePath: env.CHROME_PATH || '',
     debug: env.BRIDGE_DEBUG === '1',

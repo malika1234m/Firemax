@@ -13,8 +13,10 @@
 // No encryption is broken: it is EZVIZ's own player, with the owner's own
 // developer keys and verification codes.
 //
-// Settings come from /data/options.json when running as a Home Assistant
-// add-on, otherwise from ~/.firemex-ezviz.env (one camera) for development.
+// Inside the FiremeX add-on ha_agent/ezviz.py starts this as an unprivileged
+// user, passes its settings in the environment, and adds the cameras to Home
+// Assistant itself — the browser side never holds the Home Assistant token.
+// On a development machine settings come from ~/.firemex-ezviz.env.
 // BRIDGE_FAKE=1 swaps the EZVIZ player for a simulated one (fake_player.html),
 // so everything except the EZVIZ cloud can be tested without a camera.
 import crypto from 'node:crypto'
@@ -24,7 +26,6 @@ import { fileURLToPath } from 'node:url'
 
 import { loadConfig } from './config.mjs'
 import { getToken } from './ezviz.mjs'
-import { registerCameras } from './homeassistant.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 let CFG
@@ -171,5 +172,4 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     process.exit(0)
   })
 }
-if (CFG.registerInHA) registerCameras(CFG, [...cams.values()]).catch((e) => log(`camera registration failed: ${e.message}`))
 for (const cam of cams.values()) keepRunning(cam)
