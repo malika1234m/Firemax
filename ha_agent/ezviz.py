@@ -18,8 +18,11 @@ import logging
 import os
 import pwd
 import secrets
+import shutil
 import socket
+import stat
 import subprocess
+import tempfile
 import threading
 import time
 
@@ -31,6 +34,9 @@ BRIDGE = os.environ.get("EZVIZ_BRIDGE", "/app/ezviz_bridge/bridge.mjs")
 PORT = int(os.environ.get("EZVIZ_BRIDGE_PORT", "8095"))
 AUTH_PATH = os.environ.get("EZVIZ_AUTH_PATH", "/data/ezviz_bridge_auth.json")
 RUN_AS = os.environ.get("EZVIZ_RUN_AS", "ezviz")
+# Home for the bridge's browser profile. In the add-on each start gets a fresh
+# directory inside this root-owned parent (see _demote); elsewhere BRIDGE_HOME.
+BRIDGE_HOME_PARENT = os.environ.get("EZVIZ_HOME_PARENT", "/run/ezviz")
 BRIDGE_HOME = os.environ.get("EZVIZ_HOME", "/tmp/ezviz")
 
 # bridge.mjs exits with this when its settings are wrong. Restarting cannot fix
@@ -111,9 +117,18 @@ def _demote():
     except KeyError:
         logger.warning(f"user {RUN_AS!r} not found — running the EZVIZ bridge as root")
         return {}
-    os.makedirs(BRIDGE_HOME, mode=0o700, exist_ok=True)
-    os.chown(BRIDGE_HOME, user.pw_uid, user.pw_gid)
-    return {"user": user.pw_uid, "group": user.pw_gid, "extra_groups": [], "cwd": BRIDGE_HOME}
+    # A fresh home on every start, made by root inside a root-owned parent the
+    # ezviz user cannot write to. Re-using a fixed path in world-writable /tmp
+    # let a compromised bridge swap it for a symlink to /data or Home
+    # Assistant's config before the next restart — and root's chown would then
+    # have handed that directory over.
+    os.makedirs(BRIDGE_HOME_PARENT, mode=0o755, exist_ok=True)
+    parent = os.lstat(BRIDGE_HOME_PARENT)
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o022:
+        raise RuntimeError(f"{BRIDGE_HOME_PARENT} is not a root-owned, non-writable directory")
+    home = tempfile.mkdtemp(prefix="home-", dir=BRIDGE_HOME_PARENT)
+    os.chown(home, user.pw_uid, user.pw_gid, follow_symlinks=False)
+    return {"user": user.pw_uid, "group": user.pw_gid, "extra_groups": [], "cwd": home}
 
 
 class Bridge:
@@ -157,18 +172,28 @@ class Bridge:
 
     def _run_once(self) -> int:
         try:
+            demote = _demote()
+            env = dict(self._env)
+            if "cwd" in demote:
+                env["HOME"] = demote["cwd"]           # this start's fresh home
             self._proc = subprocess.Popen(
                 self._command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, env=self._env, **_demote())
-        except OSError as exc:
+                text=True, bufsize=1, env=env, **demote)
+        except (OSError, RuntimeError) as exc:
             logger.error(f"could not start the EZVIZ bridge: {exc}")
             return 1
-        for line in self._proc.stdout:
-            line = line.rstrip()
-            if line:
-                # The bridge prefixes its own ISO timestamp; ours is enough.
-                logger.info(line.split(" ", 1)[1] if line[:4].isdigit() and " " in line else line)
-        return self._proc.wait()
+        try:
+            for line in self._proc.stdout:
+                line = line.rstrip()
+                if line:
+                    # The bridge prefixes its own ISO timestamp; ours is enough.
+                    logger.info(line.split(" ", 1)[1] if line[:4].isdigit() and " " in line else line)
+            return self._proc.wait()
+        finally:
+            if "cwd" in demote:
+                # Removed as root without following links (rmtree is
+                # symlink-safe), so nothing outside the home can be touched.
+                shutil.rmtree(demote["cwd"], ignore_errors=True)
 
 
 # ── adding the cameras to Home Assistant (needs the Supervisor token) ─────────

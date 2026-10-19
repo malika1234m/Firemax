@@ -165,3 +165,41 @@ def test_registered_only_once_playing_and_failure_never_logs_the_password(caplog
     assert posts, "registration was attempted once the camera played"
     assert "add it by hand" in caplog.text
     assert AUTH["password"] not in caplog.text
+
+
+# ── the browser's home cannot be used to take over another directory ────────
+def _as_root(monkeypatch, tmp_path):
+    import pwd
+    me = pwd.getpwuid(os.getuid())
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    monkeypatch.setattr(ezviz.pwd, "getpwnam", lambda name: me)
+    chowned = []
+    monkeypatch.setattr(os, "chown", lambda path, uid, gid, follow_symlinks=True: chowned.append((path, follow_symlinks)))
+    real_lstat = os.lstat
+
+    class RootOwned:
+        def __init__(self, st):
+            self.st_mode, self.st_uid = st.st_mode, 0
+
+    monkeypatch.setattr(os, "lstat", lambda p: RootOwned(real_lstat(p)))
+    return chowned
+
+
+def test_each_start_gets_a_fresh_home_and_symlinks_are_not_followed(monkeypatch, tmp_path):
+    parent = tmp_path / "run-ezviz"
+    monkeypatch.setattr(ezviz, "BRIDGE_HOME_PARENT", str(parent))
+    chowned = _as_root(monkeypatch, tmp_path)
+    a, b = ezviz._demote(), ezviz._demote()
+    assert a["cwd"] != b["cwd"]                                   # never re-used
+    assert all(p.startswith(str(parent)) for p in (a["cwd"], b["cwd"]))
+    assert chowned and all(follow is False for _, follow in chowned)
+
+
+def test_a_writable_or_foreign_parent_is_refused(monkeypatch, tmp_path):
+    parent = tmp_path / "shared"
+    parent.mkdir()
+    os.chmod(parent, 0o777)                                       # anyone could swap things in it
+    monkeypatch.setattr(ezviz, "BRIDGE_HOME_PARENT", str(parent))
+    _as_root(monkeypatch, tmp_path)
+    with pytest.raises(RuntimeError, match="root-owned"):
+        ezviz._demote()
