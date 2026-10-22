@@ -39,17 +39,21 @@ def ensure_model(model_path: str, model_url: str = "", expected_sha256: str = ""
     far better than running a detector that can never fire.
     """
     if os.path.exists(model_path):
-        if expected_sha256:
-            actual = _sha256(model_path)
-            if actual != expected_sha256.lower():
-                raise SystemExit(
-                    f"Model at {model_path} has checksum {actual}, expected {expected_sha256}. "
-                    "Delete it to re-download, or correct MODEL_SHA256."
-                )
-            logger.info(f"model verified: {model_path}")
-        else:
+        if not expected_sha256:
             logger.info(f"model present: {model_path}")
-        return model_path
+            return model_path
+        actual = _sha256(model_path)
+        if actual == expected_sha256.lower():
+            logger.info(f"model verified: {model_path}")
+            return model_path
+        if not model_url:
+            raise SystemExit(
+                f"Model at {model_path} has checksum {actual}, expected {expected_sha256}. "
+                "Delete it to re-download, or correct MODEL_SHA256."
+            )
+        # A cached model from an earlier release: fetch the one now pinned.
+        # The old file is only replaced once the new one has verified.
+        logger.info(f"model at {model_path} is outdated (checksum {actual[:12]}…); replacing it")
 
     if not model_url:
         raise SystemExit(

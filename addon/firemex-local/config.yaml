@@ -50,8 +50,8 @@ options:
   confidence_threshold: 0.50
   alert_cooldown_seconds: 30
   detector_mode: yolo
-  model_url: https://github.com/malika1234m/Firemax/releases/download/v0.1.0/fire_model.pt
-  model_sha256: 2ab009042ba04827ee1cd1ccb0648832577677334c5fe4927e7c7950f7406c89
+  model_url: https://github.com/malika1234m/Firemax/releases/download/model-v2/fire_model.pt
+  model_sha256: 11d7278e39803fa7504654b89a6f4f7ea455a8f9464fa38d64bb7f999702e0e6
   process_fps: 2
   clear_after_seconds: 120
   hazard_classes:

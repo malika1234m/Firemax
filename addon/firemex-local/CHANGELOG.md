@@ -2,6 +2,32 @@
 
 ## 1.4.0
 
+- **A simpler dashboard.** Three tabs — Home, Emergency, History — instead of
+  six. One line at the top says what is happening and what to do. While a
+  camera alerts, the photo FiremeX reacted to and a single *Yes, it is a real
+  fire* button appear beside its live picture, on one screen. Setup pages and
+  tiles that showed "Entity not found" are gone.
+- **Alerts on phones.** Alerts, offline cameras and incidents are also sent with
+  `notify.notify`; install the Home Assistant app to receive them.
+- **Stay safe guidance** on the Emergency tab, and the alert tells people not to
+  go and look in person.
+- Sprinkler, siren and fire-brigade controls open a window first, so a stray tap
+  cannot set them off.
+- Fixed: the orange-colour rule raised `fire` alerts although `hazard_classes`
+  allowed only the trained model's classes. It now needs `colour_fire`.
+- Fixed: a camera was reported offline after a 15-second gap, ignoring
+  `camera_offline_after_seconds` (60). Short picture-fetch hiccups no longer
+  raise offline alerts.
+- Fixed: the "incident declared" notification read "unknown on unknown".
+- Fixed: the free-tier warning was repeated in the log every minute.
+- **A new fire model, trained on real photos** (D-Fire, about 21,000 images)
+  instead of 169 computer-made ones. On a real room camera it catches more
+  fires and mistakes fewer people for smoke.
+- Fixed: when an update brought a new model, the add-on refused to start until
+  the old one was deleted by hand. It now downloads the new model by itself.
+- Cameras FiremeX does not watch are left off the dashboard.
+- The Configuration tab now explains every option.
+
 - **Encrypted EZVIZ cameras.** EZVIZ cameras with Video Encryption on only play
   in EZVIZ's own player, so Home Assistant could not show them. FiremeX can now
   run that official player for you, with your EZVIZ developer keys and each
