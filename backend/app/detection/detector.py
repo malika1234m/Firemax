@@ -175,6 +175,7 @@ class HazardDetector:
                 x2=float(x+bw), y2=float(y+bh),
                 label="fire",
                 confidence=conf,
+                source="colour",
             ))
         return boxes
 

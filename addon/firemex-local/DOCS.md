@@ -41,39 +41,65 @@ restart needed.
 FiremeX raises **alerts**. Only a person declares an **incident**.
 
 ```
-detection -> alert (with evidence snapshot) -> operator reviews -> CONFIRM -> automations
+detection -> alert (with evidence photo) -> person looks -> "Yes, it is a real fire" -> response
 ```
 
-Nothing actuates on a detection. Sprinklers, sirens and any call-out hang off
-`input_boolean.firemex_incident`, which only an operator's confirm button turns
-on. The model is confident and sometimes wrong, and a false sprinkler discharge
-is its own emergency.
+Nothing switches on by itself. The model is sometimes wrong, and a false
+sprinkler discharge is its own emergency.
 
-`ha_agent/setup_ha.py` provisions the whole workflow — helpers, automations and
-a six-tab dashboard (Dashboard / Live Feed / Alerts / Incidents / Cameras /
-Home Devices):
+### The FiremeX dashboard
 
-```bash
-HA_URL=http://homeassistant.local:8123 HA_TOKEN=<long-lived token> \
-    python ha_agent/setup_ha.py
-```
+The add-on creates the **FiremeX** dashboard in the sidebar each time it starts.
+It has three tabs, written for someone who has never used Home Assistant:
 
-**Evidence snapshots.** Every alert saves the annotated frame the model produced
-— the boxes and confidences it actually drew — to `www/firemex/<camera>.jpg`,
-republished as a `local_file` camera. The Alerts tab shows it beside that
-camera's confirm button. A confidence number alone is not something a person can
-confirm or reject; the picture is.
+| Tab | What is on it |
+|---|---|
+| **Home** | One line saying what is happening and what to do. Each camera's picture and status. While a camera is alerting, *Is this a real fire?* appears beside it: the photo FiremeX reacted to, and one button, **Yes, it is a real fire**. During an incident: **All safe — end the incident**. |
+| **Emergency** | Sprinklers, evacuation siren, fire brigade. A short *Stay safe* checklist. **Declare a fire I can see myself**, for a fire no camera saw. |
+| **History** | Everything that happened in the last 24 hours, and who pressed what. |
 
-**One confirm button per camera**, because the evidence being confirmed belongs
-to a camera. There is also a "Declare without a camera" button for when an
-operator sees a fire themselves.
+**What the operator does**
 
-**The alerting camera pins itself** on the Live Feed wall, so a crew watching
-several cameras does not have to hunt for the one that fired.
+1. An alert appears (and on phones, see below). **Do not go to look in
+   person** — the photo is safer.
+2. Real fire: press **Yes, it is a real fire**. The incident starts and the
+   sprinklers, siren and fire-brigade call switch on.
+3. Not a fire: do nothing. The alert clears by itself after
+   `clear_after_seconds`.
+4. When everyone is safe, press **All safe — end the incident**. Everything
+   switches off again.
 
-**Camera-offline alerts.** A camera that stops delivering frames raises its own
-alert. Silence from a camera is indistinguishable from safety, which is the one
-mistake a fire system must never make.
+Sprinkler, siren and fire-brigade tiles open a window first, so a stray tap
+cannot set them off.
+
+**Camera-offline alerts.** A camera silent for 60 seconds raises its own alert:
+silence from a camera looks exactly like safety, which a fire system must never
+confuse. Short gaps (Home Assistant sometimes takes a moment to fetch a picture)
+do not.
+
+### Alerts on phones
+
+Every alert, offline camera and incident is also sent with `notify.notify`. Install
+the **Home Assistant app** on each phone that should be told and sign in once —
+nothing else to set up. Tapping the notification opens the FiremeX dashboard.
+Without the app the dashboard still works; the phone step is simply skipped.
+
+### Connecting a real siren, valve or alarm panel
+
+The three response switches (`input_boolean.evacuation_siren`,
+`input_boolean.fire_sprinklers`, `input_boolean.fire_brigade_called`) start as
+switches inside Home Assistant only. To make one drive real hardware:
+
+1. Add the device to Home Assistant: **Settings → Devices & services → Add
+   integration**.
+2. **Settings → Automations & scenes → Create automation**: *When* Evacuation
+   siren turns **on** → *Then* turn your siren **on**. Make a second one for
+   **off**, so *All safe* silences it.
+
+> Sprinklers and sprinkler valves belong to the building's certified fire
+> system. Connect FiremeX to that system's input — wired by a qualified
+> electrician — never in place of it. Do not let it call emergency services by
+> itself: send a person a notification and let them call.
 
 ## What it gives you
 
@@ -241,6 +267,10 @@ An operator console that cries wolf is worse than one with fewer features —
 people stop reading it, and then the real alert is missed too. Add
 `gas_fire`, `lpg_fire`, `chemical_fire`, `gas_shimmer` or `person_down` once you
 have tested them against your own cameras.
+
+The orange-flame colour rule also calls what it finds `fire`, so it has its own
+name here: `fire` alone means the trained model's fire. Add `colour_fire` to let
+the colour rule alert too — it is known to box skin and orange objects.
 
 ## Hardware
 
