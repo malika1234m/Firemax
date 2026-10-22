@@ -85,8 +85,10 @@ class ClassFilteredDetector:
         return self._inner.detect(frame)
 
     def is_hazard(self, detections):
+        # The colour rule also says "fire"; it alerts only when "colour_fire"
+        # is chosen, so "fire" alone means the trained model's fire.
         return [d for d in self._inner.is_hazard(detections)
-                if d.label.lower() in self._allowed]
+                if ("colour_fire" if d.source == "colour" else d.label.lower()) in self._allowed]
 
 
 def build_detector(options):
@@ -120,6 +122,20 @@ def build_detector(options):
     return ClassFilteredDetector(detector, allowed)
 
 
+def camera_silent(health: dict, started_at: float, now: float, after: float) -> bool:
+    """Offline means silent for `after` seconds — not merely a missed frame or
+    two. Home Assistant's picture fetch times out now and then; alerting on
+    every short gap would teach people to ignore the offline alert. A camera
+    that has never sent a frame gets the same grace from startup."""
+    age = health.get("last_frame_age_s")
+    if age is None:
+        return (now - started_at) >= after
+    return age >= after
+
+
+_last_limit_notice = None
+
+
 def _apply_camera_limit(cameras: dict, max_cameras) -> dict:
     """Trim the watch list to what this install is licensed for.
 
@@ -131,8 +147,13 @@ def _apply_camera_limit(cameras: dict, max_cameras) -> dict:
     if max_cameras is None or len(cameras) <= max_cameras:
         return cameras
 
+    global _last_limit_notice
     keep = dict(sorted(cameras.items())[:max_cameras])
     dropped = [e for e in sorted(cameras) if e not in keep]
+    # Discovery runs every minute; say it again only when the answer changes.
+    if dropped == _last_limit_notice:
+        return keep
+    _last_limit_notice = dropped
     logger.warning(
         f"FREE TIER: watching {len(keep)} of {len(cameras)} cameras. "
         f"Not watched: {', '.join(dropped)}. "
@@ -267,7 +288,8 @@ def run():
             setup_ha.main(url=client.base_url.removesuffix("/api"),
                           token=client.token,
                           snapshot_dir=options.snapshot_dir,
-                          ha_config_dir=options.ha_config_dir)
+                          ha_config_dir=options.ha_config_dir,
+                          only=set(wanted_cameras(client, options, max_cameras)))
         except SystemExit as exc:
             # No cameras yet is the normal first-run case, not a failure: the
             # agent keeps running and picks them up when they appear.
@@ -362,12 +384,9 @@ def run():
                     continue
                 health = pipeline.health()
                 online = bool(health["online"])
-
-                # A camera is only judged offline after a grace period — at
-                # startup it has legitimately never delivered a frame yet, and
-                # alerting then would cry wolf on every restart.
-                past_grace = (now - st.started_at) >= options.camera_offline_after_seconds
-                if not online and past_grace and not st.offline_alerted:
+                silent = camera_silent(health, st.started_at, now,
+                                       options.camera_offline_after_seconds)
+                if silent and not st.offline_alerted:
                     st.offline_alerted = True
                     st.hazard = OFFLINE_HAZARD
                     age = health["last_frame_age_s"]

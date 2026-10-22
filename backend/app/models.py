@@ -210,6 +210,10 @@ class DetectionBox(BaseModel):
     y2: float
     label: str
     confidence: float
+    # "model" for the trained network, "colour" for the HSV colour rule. Both
+    # call a flame "fire", so without this a filter on learned classes only
+    # cannot tell them apart.
+    source: str = "model"
 
 
 class Camera(BaseModel):

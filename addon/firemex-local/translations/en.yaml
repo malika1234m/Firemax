@@ -1,0 +1,67 @@
+configuration:
+  licence_key:
+    name: Licence key
+    description: >-
+      Leave empty for the free tier (one camera). Paste your FiremeX licence key
+      to watch every camera.
+  cameras:
+    name: Cameras to watch
+    description: >-
+      Leave empty to watch every camera in Home Assistant. Or list the ones to
+      watch, for example camera.front_door.
+  confidence_threshold:
+    name: Alert confidence
+    description: >-
+      How sure FiremeX must be before it alerts, from 0.1 to 0.95. Default 0.5.
+      Lower catches more but gives more false alarms.
+  alert_cooldown_seconds:
+    name: Seconds between alerts
+    description: Wait this long before the same camera alerts again. Default 30.
+  detector_mode:
+    name: Detector
+    description: >-
+      "yolo" uses the trained fire model. "mock" raises no real alerts and is
+      only for trying the add-on out.
+  model_url:
+    name: Model download address
+    description: Where the fire model is downloaded from. Leave as it is.
+  process_fps:
+    name: Pictures checked per second
+    description: >-
+      How often each camera is checked. Default 2. Raise it only if this machine
+      has power to spare.
+  clear_after_seconds:
+    name: All-clear after (seconds)
+    description: >-
+      With nothing seen for this long, the alert clears by itself. Default 120.
+  hazard_classes:
+    name: What may raise an alert
+    description: >-
+      Default fire, smoke, flame. Add colour_fire, gas_fire or person_down only
+      after testing them on your own cameras — they give more false alarms.
+  provision_dashboard:
+    name: Set up the FiremeX dashboard
+    description: >-
+      Creates and updates the FiremeX dashboard, its buttons and automations
+      each time the add-on starts.
+  ezviz_app_key:
+    name: EZVIZ AppKey
+    description: >-
+      Only for EZVIZ cameras with Video Encryption on. From the EZVIZ Open
+      Platform console. See the Documentation tab.
+  ezviz_app_secret:
+    name: EZVIZ AppSecret
+    description: From the same EZVIZ console page as the AppKey.
+  ezviz_cameras:
+    name: EZVIZ cameras
+    description: >-
+      Each camera's name, serial number and 6-letter verification code. Leave
+      empty if you do not use encrypted EZVIZ cameras.
+  ezviz_fps:
+    name: EZVIZ pictures per second
+    description: Default 2.
+  ezviz_bridge_password:
+    name: EZVIZ bridge password
+    description: >-
+      Only needed if FiremeX cannot add an EZVIZ camera by itself. At least 12
+      characters.

@@ -32,6 +32,7 @@ demonstrated without real hardware. Replace them with your real `switch.*`,
 import asyncio
 import json
 import os
+import sys
 import urllib.request
 
 # Resolved once by configure(); module-level so the helpers below stay simple.
@@ -131,6 +132,16 @@ def confirm_button(label: str) -> str:
 
 # ── automations ────────────────────────────────────────────────────────────
 
+def _tell_phones(title, message):
+    """Also send the alert to phones (the Home Assistant app), so nobody misses
+    a fire because they were not looking at the screen. Always the LAST action
+    and allowed to fail: with no phone set up it must never stop the response."""
+    return {"service": "notify.notify", "continue_on_error": True, "data": {
+        "title": title, "message": message,
+        "data": {"tag": "firemex", "url": "/firemex-dashboard/dashboard",
+                 "clickAction": "/firemex-dashboard/dashboard"}}}
+
+
 def automations(cameras):
     # An input_button trigger fires on ANY state change of that entity —
     # including the entity being re-registered after a Home Assistant restart or
@@ -175,6 +186,8 @@ def automations(cameras):
                 "notification_id": "firemex_incident",
                 "message": ("Confirmed on {{ cam }}.\n"
                             "Sprinklers ON · Evacuation siren ON · Fire brigade called.")}},
+            _tell_phones("FIRE — incident declared",
+                         "Confirmed on {{ cam }}. Get everyone out by the nearest exit."),
         ],
     }
 
@@ -217,7 +230,10 @@ def automations(cameras):
                 "message": ("{{ trigger.event.data.hazard_type | upper }} on "
                             "{{ trigger.event.data.camera_name }} at "
                             "{{ (trigger.event.data.confidence * 100) | int }}% confidence.\n\n"
-                            "Open the FiremeX dashboard and confirm before declaring an incident.")}}],
+                            "Open the FiremeX dashboard and confirm before declaring an incident.")}},
+                       _tell_phones("FiremeX — possible {{ trigger.event.data.hazard_type }}",
+                                    "{{ trigger.event.data.camera_name }}: look at the photo in "
+                                    "FiremeX and confirm if it is real.")],
         },
         # A camera stopped delivering frames — silence is not safety.
         "firemex_camera_offline": {
@@ -229,7 +245,10 @@ def automations(cameras):
                 "title": "FiremeX — camera offline",
                 "notification_id": "firemex_camera_offline",
                 "message": ("{{ trigger.event.data.camera_name }} has stopped delivering "
-                            "frames and is no longer being monitored.")}}],
+                            "frames and is no longer being monitored.")}},
+                       _tell_phones("FiremeX — camera offline",
+                                    "{{ trigger.event.data.camera_name }} is not sending pictures. "
+                                    "Check its power and Wi-Fi.")],
         },
         # THE HUMAN GATE. Everything destructive hangs off this button.
         # Replace the input_boolean targets with your real switches/sirens.
@@ -254,8 +273,10 @@ def automations(cameras):
                     "title": "INCIDENT DECLARED", "notification_id": "firemex_incident",
                     "message": ("Sprinklers ON · Evacuation siren ON · Fire brigade called.\n"
                                 "Trigger: {{ states('sensor.firemex_hazard') }} on "
-                                "{{ states('sensor.firemex_camera') }} "
-                                "({{ states('sensor.firemex_confidence') }}%).")}},
+                                "{{ state_attr('sensor.firemex_hazard', 'camera_name') or 'no camera' }} "
+                                "({{ state_attr('sensor.firemex_hazard', 'confidence') or 'declared by hand' }}).")}},
+                _tell_phones("FIRE — incident declared",
+                             "Declared by the operator. Get everyone out by the nearest exit."),
             ],
         },
         "firemex_stand_down": {
@@ -280,346 +301,190 @@ def automations(cameras):
 
 
 # ── dashboard ──────────────────────────────────────────────────────────────
+#
+# Written for someone who has never seen Home Assistant: three tabs, one plain
+# sentence at the top saying what is happening and what to do, red only when
+# something is actually wrong. Setup (adding cameras, wiring devices) lives in
+# Home Assistant's own Settings, not on the screen people watch.
 
-def _status_tiles(cameras):
-    """One tile per camera, showing that camera's own hazard state.
+INCIDENT = "input_boolean.firemex_incident"
+STAND_DOWN = "input_button.firemex_stand_down"
+# Two columns: wide enough to read on a laptop, and it folds to one on a phone.
+COLUMNS = 2
 
-    Deliberately placed ABOVE the pictures everywhere it appears: an operator
-    scanning a wall of six cameras needs to know WHICH one is alerting before
-    they start looking at images.
-    """
-    return [{"type": "tile", "entity": status_sensor(e), "name": n,
-             "icon": "mdi:cctv", "color": "red"} for e, n in cameras]
+
+def _section(cards, span=1):
+    """A grid section. Inside a wide one Home Assistant would set cards side by
+    side; stacking them full width keeps the picture, its status and its button
+    reading top to bottom."""
+    if span > 1:
+        cards = [c if c["type"] == "heading" else {**c, "grid_options": {"columns": "full"}}
+                 for c in cards]
+    return {"type": "grid", "column_span": span, "cards": cards}
+
+
+def _when(entity, card, state=None, state_not=None):
+    cond = {"condition": "state", "entity": entity}
+    cond.update({"state": state} if state is not None else {"state_not": state_not})
+    return {"type": "conditional", "conditions": [cond], "card": card}
+
+
+def _status_banner(cameras):
+    """The one line everybody reads: what is happening, and what to do."""
+    sensors = [status_sensor(e) for e, _ in cameras]
+    return {"type": "markdown", "text_only": True, "content": (
+        "{% set h = states('sensor.firemex_hazard') %}"
+        f"{{% set cams = {sensors} %}}"
+        "{% set offline = cams | select('is_state', 'camera_offline') | list %}"
+        f"{{% if is_state('{INCIDENT}', 'on') %}}"
+        '<ha-alert alert-type="error" title="Incident declared — fire response is running">'
+        "Get everyone out. Open the <b>Emergency</b> tab for the sprinklers, siren and "
+        "fire brigade. When everyone is safe, press <b>All safe — end the incident</b>."
+        "</ha-alert>"
+        "{% elif h not in ['clear', 'unknown', 'unavailable'] %}"
+        '<ha-alert alert-type="warning" title="Possible {{ h }} on '
+        "{{ state_attr('sensor.firemex_hazard', 'camera_name') }} "
+        "({{ state_attr('sensor.firemex_hazard', 'confidence') }} sure)\">"
+        "Look at the photo. If it is a real fire, press <b>Yes, it is a real fire</b>. "
+        "If it is not, do nothing — the alert clears by itself. "
+        "Do not go to check it in person: the photo is safer."
+        "</ha-alert>"
+        "{% elif offline %}"
+        '<ha-alert alert-type="warning" title="A camera is offline">'
+        "{{ offline | map('state_attr', 'camera_name') | join(', ') }} is not sending "
+        "pictures, so FiremeX cannot watch it. Check its power and Wi-Fi."
+        "</ha-alert>"
+        "{% else %}"
+        '<ha-alert alert-type="success" title="All clear"></ha-alert>'
+        "{% endif %}")}
+
+
+def _camera_sections(entity, label):
+    """Two half-width sections side by side: the live picture with its status,
+    and — only while it is alerting — the evidence photo with the one button
+    that matters. Side by side, both fit on one screen with no scrolling."""
+    sensor = status_sensor(entity)
+    alerting = {"condition": "and", "conditions": [
+        {"condition": "state", "entity": sensor, "state_not": "clear"},
+        {"condition": "state", "entity": sensor, "state_not": "camera_offline"},
+        {"condition": "state", "entity": INCIDENT, "state": "off"}]}
+    live = _section([
+        {"type": "heading", "heading": label, "heading_style": "title", "icon": "mdi:cctv"},
+        {"type": "markdown", "text_only": True, "content": (
+            f"{{% set s = states('{sensor}') %}}"
+            "{% if s == 'clear' %}<ha-icon icon=\"mdi:check-circle\"></ha-icon> No fire seen"
+            "{% elif s == 'camera_offline' %}<ha-icon icon=\"mdi:cctv-off\"></ha-icon> "
+            "Not sending pictures — check its power and Wi-Fi"
+            "{% elif s in ['unknown', 'unavailable'] %}<ha-icon icon=\"mdi:timer-sand\"></ha-icon> Starting up…"
+            "{% else %}<ha-icon icon=\"mdi:fire-alert\"></ha-icon> <b>Possible {{ s }}</b> — "
+            f"{{{{ state_attr('{sensor}', 'confidence') }}}} sure{{% endif %}}")},
+        # Stills, not "live": this camera streams H.265, which browsers cannot
+        # play, so a live view is just a black box.
+        {"type": "picture-entity", "entity": entity, "camera_view": "auto",
+         "show_name": False, "show_state": False},
+    ])
+    evidence = _section([
+        {"type": "conditional", "conditions": [alerting], "card": {
+            "type": "heading", "heading": "Is this a real fire?", "heading_style": "title",
+            "icon": "mdi:fire-alert"}},
+        {"type": "conditional", "conditions": [alerting], "card": {
+            "type": "picture-entity", "entity": snapshot_camera(entity),
+            "name": "What FiremeX saw", "show_state": False}},
+        {"type": "conditional", "conditions": [alerting], "card": {
+            "type": "tile", "entity": confirm_button(label),
+            "name": "Yes, it is a real fire", "icon": "mdi:fire-alert", "color": "red", "hide_state": True,
+            "tap_action": {"action": "toggle"}}},
+    ])
+    return [live, evidence]
 
 
 def _actuator_tiles():
+    # Opening the dialog first means a stray tap cannot start the sprinklers.
+    deliberate = {"tap_action": {"action": "more-info"},
+                  "icon_tap_action": {"action": "more-info"}}
     return [
         {"type": "tile", "entity": "input_boolean.fire_sprinklers",
-         "name": "Sprinklers", "icon": "mdi:sprinkler-fire", "color": "blue"},
+         "name": "Sprinklers", "icon": "mdi:sprinkler-fire", **deliberate},
         {"type": "tile", "entity": "input_boolean.evacuation_siren",
-         "name": "Evacuation siren", "icon": "mdi:bullhorn", "color": "amber"},
+         "name": "Evacuation siren", "icon": "mdi:bullhorn", **deliberate},
         {"type": "tile", "entity": "input_boolean.fire_brigade_called",
-         "name": "Fire brigade", "icon": "mdi:fire-truck", "color": "red"},
-    ]
-
-
-def _alert_badges():
-    return [
-        {"type": "entity", "entity": "input_boolean.firemex_incident", "name": "Incident"},
-        {"type": "entity", "entity": "sensor.firemex_hazard", "name": "Alert"},
-        {"type": "entity", "entity": "sensor.firemex_confidence", "name": "Confidence"},
-        {"type": "entity", "entity": "sensor.firemex_camera", "name": "Camera"},
+         "name": "Fire brigade", "icon": "mdi:fire-truck", **deliberate},
     ]
 
 
 def view_dashboard(cameras):
     return {
-        "title": "Dashboard", "path": "dashboard",
-        "theme": "FiremeX", "type": "sections", "max_columns": 3,
-        "badges": _alert_badges(),
+        "title": "Home", "path": "dashboard",
+        "theme": "FiremeX", "type": "sections", "max_columns": COLUMNS,
         "sections": [
-            {"type": "grid", "cards": [
-                {"type": "heading", "heading": "Current state", "heading_style": "title",
-                 "icon": "mdi:fire-alert"},
-                {"type": "tile", "entity": "sensor.firemex_hazard", "name": "Hazard",
-                 "icon": "mdi:fire-alert", "color": "red"},
-                {"type": "tile", "entity": "sensor.firemex_confidence", "name": "Confidence",
-                 "icon": "mdi:gauge", "color": "amber"},
-                {"type": "tile", "entity": "sensor.firemex_camera", "name": "Source camera",
-                 "icon": "mdi:cctv", "color": "cyan"},
-                {"type": "tile", "entity": "input_boolean.firemex_incident",
-                 "name": "Incident declared", "icon": "mdi:alert-octagon", "color": "red"},
-            ]},
-            {"type": "grid", "cards": [
-                {"type": "heading", "heading": "Cameras", "heading_style": "title",
-                 "icon": "mdi:cctv"}, *_status_tiles(cameras)]},
-            {"type": "grid", "cards": [
-                {"type": "heading", "heading": "Response", "heading_style": "title",
-                 "icon": "mdi:home-lightning-bolt"}, *_actuator_tiles()]},
-            {"type": "grid", "column_span": 3, "cards": [
-                {"type": "heading", "heading": "Recent activity", "heading_style": "title",
-                 "icon": "mdi:history"},
-                {"type": "logbook", "hours_to_show": 6,
-                 "entities": ["sensor.firemex_hazard", "input_boolean.firemex_incident"]},
-            ]},
+            _section([
+                _status_banner(cameras),
+                _when(INCIDENT, {"type": "tile", "entity": STAND_DOWN,
+                                 "name": "All safe — end the incident",
+                                 "icon": "mdi:check-circle-outline", "color": "green", "hide_state": True,
+                                 "tap_action": {"action": "toggle"}}, state="on"),
+            ], COLUMNS),
+            *[sec for e, n in cameras for sec in _camera_sections(e, n)],
         ],
     }
 
 
-def view_live_feed(cameras):
-    cards = [
-        {"type": "heading", "heading": "Live feed", "heading_style": "title", "icon": "mdi:video"},
-        {"type": "entities", "title": "Pin a camera", "entities": [
-            {"entity": "input_select.firemex_pinned_camera", "name": "Pinned"}]},
-        *_status_tiles(cameras),
-    ]
-    for entity, label in cameras:
-        cards.append({"type": "conditional",
-                      "conditions": [{"condition": "state",
-                                      "entity": "input_select.firemex_pinned_camera",
-                                      "state": label}],
-                      "card": {"type": "picture-entity", "entity": entity,
-                               "camera_view": "auto", "name": f"PINNED — {label}",
-                               "show_state": False}})
-    cards.append({"type": "heading", "heading": "All cameras",
-                  "heading_style": "subtitle", "icon": "mdi:grid"})
-    for entity, label in cameras:
-        cards.append({"type": "picture-entity", "entity": entity, "camera_view": "auto",
-                      "name": label, "show_state": False})
-    return {"title": "Live Feed", "path": "live-feed",
-            "theme": "FiremeX", "type": "sections", "max_columns": 3,
-            "badges": [{"type": "entity", "entity": status_sensor(e), "name": n}
-                       for e, n in cameras],
-            "sections": [{"type": "grid", "column_span": 3, "cards": cards}]}
-
-
-def view_alerts(cameras):
-    """The alert queue: one card per camera, each carrying its own evidence
-    snapshot and its own confirm button.
-
-    A confidence number is not something a human can confirm or reject. The
-    annotated frame is — it shows what the model actually boxed, so an operator
-    can see a real fire, or see that it has boxed a red bollard, and decide.
-    That is the entire justification for the human gate existing at all.
-    """
-    sections = []
-    for entity, label in cameras:
-        sections.append({"type": "grid", "cards": [
-            {"type": "heading", "heading": label, "heading_style": "title",
-             "icon": "mdi:cctv"},
-            # The evidence, first and largest — it is what the decision is made on.
-            {"type": "picture-entity", "entity": snapshot_camera(entity),
-             "camera_view": "auto", "name": f"{label} — detection snapshot",
-             "show_state": False},
-            {"type": "tile", "entity": status_sensor(entity), "name": "Detected",
-             "icon": "mdi:fire-alert", "color": "red"},
-            {"type": "entities", "state_color": True, "entities": [
-                {"type": "attribute", "entity": status_sensor(entity),
-                 "attribute": "confidence", "name": "Confidence"},
-                {"type": "attribute", "entity": status_sensor(entity),
-                 "attribute": "last_detection", "name": "Detected at"},
-                {"type": "attribute", "entity": status_sensor(entity),
-                 "attribute": "online", "name": "Camera online"},
-            ]},
-            {"type": "tile", "entity": confirm_button(label),
-             "name": f"CONFIRM — declare incident", "icon": "mdi:check-decagram",
-             "color": "red", "tap_action": {"action": "toggle"}},
-        ]})
-
-    sections.append({"type": "grid", "column_span": 3, "cards": [
-        {"type": "heading", "heading": "Current alert", "heading_style": "title",
-         "icon": "mdi:bell-alert"},
-        {"type": "tile", "entity": "sensor.firemex_hazard", "name": "Hazard",
-         "icon": "mdi:fire-alert", "color": "red"},
-        {"type": "tile", "entity": "sensor.firemex_confidence", "name": "Confidence",
-         "icon": "mdi:gauge", "color": "amber"},
-        {"type": "tile", "entity": "sensor.firemex_camera", "name": "Camera",
-         "icon": "mdi:cctv", "color": "cyan"},
-        {"type": "tile", "entity": "input_button.firemex_stand_down",
-         "name": "STAND DOWN", "icon": "mdi:check-circle-outline", "color": "green",
-         "tap_action": {"action": "toggle"}},
-        {"type": "history-graph", "hours_to_show": 6,
-         "entities": [{"entity": "sensor.firemex_hazard", "name": "Alert"}] +
-                     [{"entity": status_sensor(e), "name": n} for e, n in cameras]},
-        {"type": "logbook", "hours_to_show": 6, "entities": ["sensor.firemex_hazard"]},
-    ]})
-
+def view_emergency(cameras):
     return {
-        "title": "Alerts", "path": "alerts",
-        "theme": "FiremeX", "type": "sections", "max_columns": 3,
-        "badges": _alert_badges(),
-        "sections": sections,
-    }
-
-
-def view_incidents(cameras):
-    """Incident view, organised around the one question an operator has:
-    *is something happening right now, and what do I do about it?*
-
-    The view changes shape with the incident state rather than showing every
-    control all the time. When nothing is happening it is a calm history page
-    with the means to declare; once an incident is declared it becomes a
-    response board with STAND DOWN as the only prominent action. Showing
-    "declare" and "stand down" side by side at all times is how someone presses
-    the wrong one under pressure.
-    """
-    def when(state, card):
-        return {"type": "conditional",
-                "conditions": [{"condition": "state",
-                                "entity": "input_boolean.firemex_incident",
-                                "state": state}],
-                "card": card}
-
-    # ── 1. Status: one headline, then the detail that matters in that state ──
-    status = [
-        {"type": "heading", "heading": "Incident status", "heading_style": "title",
-         "icon": "mdi:alert-octagon"},
-        {"type": "tile", "entity": "input_boolean.firemex_incident",
-         "name": "Incident", "icon": "mdi:alert-octagon", "color": "red"},
-        when("on", {"type": "entities", "title": "What triggered this",
-                    "state_color": True, "entities": [
-                        {"entity": "sensor.firemex_hazard", "name": "Hazard"},
-                        {"entity": "sensor.firemex_camera", "name": "Camera"},
-                        {"entity": "sensor.firemex_confidence", "name": "Confidence"},
-                        {"type": "attribute", "entity": "sensor.firemex_hazard",
-                         "attribute": "timestamp", "name": "Detected at"},
-                    ]}),
-        when("off", {"type": "entities", "title": "No active incident",
-                     "state_color": True, "entities": [
-                         {"entity": "sensor.firemex_hazard", "name": "Latest alert"},
-                         {"entity": "sensor.firemex_camera", "name": "On camera"},
-                         {"entity": "sensor.firemex_confidence", "name": "Confidence"},
-                     ]}),
-    ]
-
-    # ── 2. Response: what the building actually did ─────────────────────────
-    response = [
-        {"type": "heading", "heading": "Building response", "heading_style": "title",
-         "icon": "mdi:home-lightning-bolt"},
-        *_actuator_tiles(),
-    ]
-
-    # ── 3. Controls: only the action that makes sense right now ─────────────
-    controls = [
-        {"type": "heading", "heading": "Controls", "heading_style": "title",
-         "icon": "mdi:gesture-tap-button"},
-        when("on", {"type": "tile", "entity": "input_button.firemex_stand_down",
-                    "name": "STAND DOWN", "icon": "mdi:check-circle-outline",
-                    "color": "green", "tap_action": {"action": "toggle"}}),
-    ]
-    # Declaring is per camera, because the evidence an operator confirms belongs
-    # to a camera. The unattached button below is the exception, not the norm.
-    for _, label in cameras:
-        controls.append(when("off", {
-            "type": "tile", "entity": confirm_button(label),
-            "name": f"Confirm — {label}", "icon": "mdi:check-decagram",
-            "color": "red", "tap_action": {"action": "toggle"}}))
-    controls.append(when("off", {
-        "type": "tile", "entity": "input_button.firemex_declare_incident",
-        "name": "Declare without a camera", "icon": "mdi:fire-alert",
-        "color": "orange", "tap_action": {"action": "toggle"}}))
-
-    # ── 4. History ──────────────────────────────────────────────────────────
-    history = [
-        {"type": "heading", "heading": "Incident history", "heading_style": "title",
-         "icon": "mdi:history"},
-        {"type": "history-graph", "hours_to_show": 12, "entities": [
-            {"entity": "input_boolean.firemex_incident", "name": "Incident"},
-            {"entity": "input_boolean.fire_sprinklers", "name": "Sprinklers"},
-            {"entity": "input_boolean.evacuation_siren", "name": "Siren"},
-            {"entity": "input_boolean.fire_brigade_called", "name": "Brigade"}]},
-        {"type": "logbook", "hours_to_show": 12, "entities": [
-            "input_boolean.firemex_incident", "input_boolean.fire_sprinklers",
-            "input_boolean.evacuation_siren", "input_boolean.fire_brigade_called"]},
-    ]
-
-    return {
-        "title": "Incidents", "path": "incidents",
-        "theme": "FiremeX", "type": "sections", "max_columns": 3,
-        "badges": _alert_badges(),
+        "title": "Emergency", "path": "emergency",
+        "theme": "FiremeX", "type": "sections", "max_columns": COLUMNS,
         "sections": [
-            {"type": "grid", "cards": status},
-            {"type": "grid", "cards": response},
-            {"type": "grid", "cards": controls},
-            {"type": "grid", "column_span": 3, "cards": history},
-        ],
-    }
-
-
-def view_cameras(cameras):
-    """Camera management.
-
-    FiremeX does not own cameras — Home Assistant does — so "Add camera" hands
-    off to HA's own integration flow rather than pretending to be a second
-    place cameras can be configured.
-
-    Per-camera detail is rendered as one entities card PER CAMERA. A single
-    card using `type: section` rows to group several cameras blanked the whole
-    view on this Home Assistant build.
-    """
-    cards = [
-        {"type": "heading", "heading": "Cameras", "heading_style": "title",
-         "icon": "mdi:camera"},
-        *_status_tiles(cameras),
-    ]
-    for entity, label in cameras:
-        sensor = status_sensor(entity)
-        cards.append({
-            "type": "entities", "title": label, "state_color": True,
-            "entities": [
-                {"entity": sensor, "name": "Status"},
-                {"type": "attribute", "entity": sensor, "attribute": "online", "name": "Online"},
-                {"type": "attribute", "entity": sensor, "attribute": "fps", "name": "FPS"},
-                {"type": "attribute", "entity": sensor, "attribute": "confidence",
-                 "name": "Confidence"},
-                {"type": "attribute", "entity": sensor, "attribute": "last_detection",
-                 "name": "Last detection"},
-                {"entity": entity, "name": "HA camera entity"},
-            ]})
-    return {
-        "title": "Cameras", "path": "cameras",
-        "theme": "FiremeX", "type": "sections", "max_columns": 3,
-        "badges": [{"type": "entity", "entity": status_sensor(e), "name": n}
-                   for e, n in cameras],
-        "sections": [
-            {"type": "grid", "column_span": 2, "cards": cards},
+            _section([_status_banner(cameras)], COLUMNS),
             {"type": "grid", "cards": [
-                {"type": "heading", "heading": "Add a camera", "heading_style": "title",
-                 "icon": "mdi:camera-plus"},
-                {"type": "entities", "title": "Camera setup", "entities": [
-                    {"type": "weblink", "url": "/config/integrations/dashboard",
-                     "name": "Add camera integration", "icon": "mdi:camera-plus"},
-                    {"type": "weblink", "url": "/config/entities",
-                     "name": "Manage existing cameras", "icon": "mdi:cog"},
-                ]},
-            ]},
-        ],
-    }
-
-
-def view_home_devices():
-    """The Home Assistant devices FiremeX drives when an incident is declared."""
-    return {
-        "title": "Home Devices", "path": "home-devices",
-        "theme": "FiremeX", "type": "sections", "max_columns": 3,
-        "sections": [
-            {"type": "grid", "column_span": 2, "cards": [
-                {"type": "heading", "heading": "Devices FiremeX can drive",
-                 "heading_style": "title", "icon": "mdi:home-lightning-bolt"},
+                {"type": "heading", "heading": "Building response", "heading_style": "title",
+                 "icon": "mdi:home-lightning-bolt"},
                 *_actuator_tiles(),
-                {"type": "entities", "title": "Wiring", "entities": [
-                    {"entity": "input_boolean.firemex_incident", "name": "Incident (the trigger)"},
-                    {"entity": "input_boolean.fire_sprinklers", "name": "Sprinklers"},
-                    {"entity": "input_boolean.evacuation_siren", "name": "Evacuation siren"},
-                    {"entity": "input_boolean.fire_brigade_called", "name": "Fire brigade"}]},
             ]},
             {"type": "grid", "cards": [
-                {"type": "heading", "heading": "Automations", "heading_style": "title",
-                 "icon": "mdi:robot"},
-                {"type": "entities", "title": "Wiring these to real hardware", "entities": [
-                    {"type": "weblink", "url": "/config/automation/dashboard",
-                     "name": "Edit FiremeX automations", "icon": "mdi:robot"},
-                    {"type": "weblink", "url": "/config/helpers",
-                     "name": "Manage helpers", "icon": "mdi:tune"},
-                ]},
+                {"type": "heading", "heading": "Stay safe", "heading_style": "title",
+                 "icon": "mdi:shield-alert"},
+                {"type": "markdown", "text_only": True, "content": (
+                    "1. Get everyone out by the **nearest exit**. Do not use lifts.\n"
+                    "2. Do not try to put out a large fire. Use an extinguisher only on a "
+                    "small fire, with your exit behind you.\n"
+                    "3. Call the fire brigade, then meet at the assembly point.\n"
+                    "4. Do not go back inside until the fire brigade says it is safe.")},
+            ]},
+            {"type": "grid", "cards": [
+                {"type": "heading", "heading": "Incident", "heading_style": "title",
+                 "icon": "mdi:alert-octagon"},
+                _when(INCIDENT, {"type": "tile", "entity": STAND_DOWN,
+                                 "name": "All safe — end the incident",
+                                 "icon": "mdi:check-circle-outline", "color": "green", "hide_state": True,
+                                 "tap_action": {"action": "toggle"}}, state="on"),
+                _when(INCIDENT, {"type": "tile",
+                                 "entity": "input_button.firemex_declare_incident",
+                                 "name": "Declare a fire I can see myself",
+                                 "icon": "mdi:fire-alert", "color": "red", "hide_state": True,
+                                 "tap_action": {"action": "toggle"}}, state="off"),
             ]},
         ],
+    }
+
+
+def view_history(cameras):
+    return {
+        "title": "History", "path": "history",
+        "theme": "FiremeX", "type": "sections", "max_columns": COLUMNS,
+        "sections": [_section([
+            {"type": "heading", "heading": "Last 24 hours", "heading_style": "title",
+             "icon": "mdi:history"},
+            {"type": "logbook", "hours_to_show": 24, "entities": [
+                INCIDENT, "input_boolean.fire_sprinklers",
+                "input_boolean.evacuation_siren", "input_boolean.fire_brigade_called",
+                *[status_sensor(e) for e, _ in cameras]]},
+        ], COLUMNS)],
     }
 
 
 def dashboard(cameras):
-    """Views become tabs across the top of the dashboard — the horizontal
-    equivalent of the deployed FiremeX sidebar (frontend/src/components/Sidebar.jsx).
-    Cloud-only sections (Billing, Sites, Users, Support) are absent by design:
-    this deployment has no accounts and no cloud."""
-    return {"views": [
-        view_dashboard(cameras),
-        view_live_feed(cameras),
-        view_alerts(cameras),
-        view_incidents(cameras),
-        view_cameras(cameras),
-        view_home_devices(),
-    ]}
+    """Views become tabs across the top of the dashboard."""
+    return {"views": [view_dashboard(cameras), view_emergency(cameras), view_history(cameras)]}
 
 
 async def provision(cameras):
@@ -682,11 +547,17 @@ async def provision(cameras):
             print(f"  {pin_name:30} {'created' if r.get('success') else r.get('error')}")
 
         print("dashboard")
-        r = await call({"type": "lovelace/dashboards/create",
-                        "url_path": "firemex-dashboard", "title": "FiremeX",
-                        "icon": "mdi:fire-alert", "show_in_sidebar": True,
-                        "require_admin": False})
-        print(f"  create  {'ok' if r.get('success') else 'exists'}")
+        # Ask first: creating one that exists logs an ERROR in Home Assistant
+        # on every add-on start, which makes a healthy system look broken.
+        listed = await call({"type": "lovelace/dashboards/list"})
+        if any(d.get("url_path") == "firemex-dashboard" for d in listed.get("result") or []):
+            print("  create  exists")
+        else:
+            r = await call({"type": "lovelace/dashboards/create",
+                            "url_path": "firemex-dashboard", "title": "FiremeX",
+                            "icon": "mdi:fire-alert", "show_in_sidebar": True,
+                            "require_admin": False})
+            print(f"  create  {'ok' if r.get('success') else r.get('error')}")
         r = await call({"type": "lovelace/config/save", "url_path": "firemex-dashboard",
                         "config": dashboard(cameras)})
         print(f"  views   {'ok' if r.get('success') else r.get('error')}")
@@ -751,10 +622,16 @@ def ensure_snapshot_cameras(cameras, snapshot_dir: str, ha_config_dir: str = "/c
             print(f"  {target:44} failed: {exc}")
 
 
+def cameras_to_show(cameras, only):
+    """Cameras FiremeX does not watch (free tier, or excluded in the options)
+    would only show up as "offline" and confuse whoever is looking."""
+    return cameras if only is None else [c for c in cameras if c[0] in only]
+
+
 def main(url: str | None = None, token: str | None = None,
-         snapshot_dir: str | None = None, ha_config_dir: str = "/config"):
+         snapshot_dir: str | None = None, ha_config_dir: str = "/config", only=None):
     configure(url, token)
-    cameras = discover_cameras()
+    cameras = cameras_to_show(discover_cameras(), only)
     if not cameras:
         raise SystemExit("No camera entities found in Home Assistant. Add a camera "
                          "integration first — FiremeX reads cameras from HA.")
