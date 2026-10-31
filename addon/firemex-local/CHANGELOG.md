@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.5.0
+
+- **New fire model (model-v4, YOLO26n).** Trained on all of D-Fire, the Home
+  Fire Dataset and our own camera footage. Against model-v3 on held-out test
+  pictures: mAP50 0.796 → 0.844 on average, better on every test set, and
+  fire and smoke recall up on all of them. On our camera's burning-paper clip
+  it catches the fire in 94% of checked frames (was 85%), still with no false
+  alarm from a lighter, and the near-miss "smoke" on a person in a white shirt
+  is gone. The new model downloads once on the first start after the update.
+- Installs that had the old model's address saved in their configuration are
+  moved to the new model too; a model address of your own is left alone.
+- Ultralytics 8.4 (needed for YOLO26; older models still load).
+- **Built for many cameras.** The Home tab shows a compact wall of every
+  camera, two to a row, and above it only the cameras alerting right now, each
+  with its photo and *Yes, it is a real fire* button — no more scrolling past
+  one panel per camera to find the one that matters.
+- **Emergency tab shows where fire is seen.** Each alerting camera's photo with
+  a *Fire here — declare* button (opens a dialog first), and the last six
+  detections with photos for whoever arrives after an alert cleared itself.
+- **History with photos.** Every detection keeps its own evidence photo (the
+  newest 30 are kept), listed with camera, time and confidence.
+- **One checking budget for all cameras.** New option *max_total_fps*
+  (default 4) is shared fairly between cameras, so twenty cameras on a
+  Raspberry Pi are each checked every few seconds instead of queueing behind
+  one another and falling behind.
+- **The screen says which cameras the plan does not cover**, instead of only
+  the add-on log.
+- **New cameras get their dashboard panel straight away**, not after a restart.
+
 ## 1.4.0
 
 - **A simpler dashboard.** Three tabs — Home, Emergency, History — instead of

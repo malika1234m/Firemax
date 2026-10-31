@@ -13,7 +13,8 @@ pydantic==2.7.1
 
 # Needed only for DETECTOR_MODE=yolo (real detection). Mock mode / --selftest
 # do not require these.
-ultralytics==8.2.0
+# 8.4 runs YOLO26 (model-v4) and still loads the older YOLOv8 models.
+ultralytics==8.4.176
 
 # Torch, CPU-only and deliberately so.
 #

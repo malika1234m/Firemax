@@ -25,6 +25,10 @@ DEFAULT_API = "http://supervisor/core/api"
 # FiremeX therefore works unchanged against this add-on — the payloads and the
 # entity are the same, only the sender is local.
 HAZARD_SENSOR = "sensor.firemex_hazard"
+# The recent detections, each with its evidence photo (see history.py).
+HISTORY_SENSOR = "sensor.firemex_detections"
+# How many cameras are watched, out of how many, on which plan.
+COVERAGE_SENSOR = "sensor.firemex_coverage"
 HAZARD_WEBHOOK = "firemax_hazard_alert"
 CLEAR_WEBHOOK = "firemax_hazard_clear"
 HAZARD_EVENT = "firemex_hazard"
@@ -197,6 +201,47 @@ class HAClient:
                 "snapshot": snapshot,
             },
         }, "camera sensor")
+
+    def publish_history(self, entries: list[dict]) -> None:
+        """The History tab's photo list. State is how many there are; the
+        entries themselves (newest first) ride in an attribute."""
+        self._post(f"/states/{HISTORY_SENSOR}", {
+            "state": len(entries),
+            "attributes": {
+                "friendly_name": "FiremeX Detections",
+                "icon": "mdi:image-multiple",
+                "unit_of_measurement": "detections",
+                "detections": entries,
+            },
+        }, "detection history")
+
+    def publish_coverage(self, watched: int, available: int, plan: str,
+                         limit: int | None, per_camera_fps: float) -> None:
+        """Which part of the building is actually covered. A camera left out by
+        the plan limit is not watched, and the screen people look at must say
+        so — not only the add-on log."""
+        not_watched = max(0, available - watched)
+        if not_watched and limit is not None:
+            note = (f"{not_watched} camera(s) not watched — the {plan} plan covers {limit}. "
+                    "Add a licence key in the add-on's Configuration tab to watch them all.")
+        elif not_watched:
+            note = f"{not_watched} camera(s) left out in the add-on's 'cameras' option."
+        else:
+            note = ""
+        self._post(f"/states/{COVERAGE_SENSOR}", {
+            "state": watched,
+            "attributes": {
+                "friendly_name": "FiremeX Cameras Watched",
+                "icon": "mdi:cctv",
+                "unit_of_measurement": "cameras",
+                "available": available,
+                "not_watched": not_watched,
+                "plan": plan,
+                "limit": limit,
+                "seconds_between_checks": round(1 / per_camera_fps, 1) if per_camera_fps else None,
+                "note": note,
+            },
+        }, "coverage")
 
     def publish_camera_offline(self, entity_id: str, name: str, timestamp: str,
                                last_frame_age: float | None) -> None:

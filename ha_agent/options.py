@@ -7,7 +7,24 @@ the Supervisor renders that to /data/options.json.
 import json
 import os
 
-ADDON_VERSION = "1.4.0"
+ADDON_VERSION = "1.5.0"
+
+# The model this release ships — must match model_url/model_sha256 in
+# addon/firemex-local/config.yaml (a test checks it).
+RELEASES = "https://github.com/malika1234m/Firemax/releases/download"
+CURRENT_MODEL = (f"{RELEASES}/model-v4/fire_model.pt",
+                 "c29a62d0a76735165da5bc44b4a2c1737c33eb8191898aa8f533b5dbdf321396")
+
+# Models earlier releases shipped. The Supervisor keeps saved options across
+# updates, so anyone who once pressed Save on the Configuration tab has the old
+# model's address stored and would never get a new model. An address that is
+# one of OUR old releases was a default, not a choice: move it to the current
+# model. A model_url pointing anywhere else is the user's own and is kept.
+SHIPPED_MODEL_URLS = {
+    f"{RELEASES}/v0.1.0/fire_model.pt",
+    f"{RELEASES}/model-v2/fire_model.pt",
+    f"{RELEASES}/model-v3/fire_model.pt",
+}
 
 OPTIONS_PATH = os.environ.get("OPTIONS_PATH", "/data/options.json")
 
@@ -44,6 +61,13 @@ DEFAULTS = {
     # this is deliberately far below the site agent's 5 fps: a Pi running HA is
     # doing many other things, and fire does not appear and vanish in 500ms.
     "process_fps": 2.0,
+    # Pictures checked per second across ALL cameras together. Every camera
+    # shares the one model, so on a Raspberry Pi (about 3 checks a second) 20
+    # cameras at process_fps 2 would queue behind each other and fall minutes
+    # behind without anyone noticing. Each camera gets min(process_fps,
+    # max_total_fps / cameras): with 1–2 cameras nothing changes, with 20 each
+    # is checked every 5 seconds — slower, but every camera stays current.
+    "max_total_fps": 4.0,
     # Seconds of quiet before the sensor returns to "clear".
     "clear_after_seconds": 120,
     # A camera that stops delivering frames raises its own alert. The grace
@@ -114,6 +138,9 @@ def load(path: str | None = None) -> Options:
             if value is None or value == "":
                 continue
             values[key] = value
+
+    if values["model_url"] in SHIPPED_MODEL_URLS:
+        values["model_url"], values["model_sha256"] = CURRENT_MODEL
 
     values["model_path"] = MODEL_PATH
     values["snapshot_dir"] = SNAPSHOT_DIR

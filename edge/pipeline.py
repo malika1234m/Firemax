@@ -107,6 +107,17 @@ class EdgePipeline:
         self.current_fps = 0.0
         self.avg_inference_ms = 0.0
 
+    def set_process_fps(self, fps: float):
+        """Change how often this camera is checked, without restarting it.
+
+        The Home Assistant add-on shares one checking budget between all its
+        cameras, so each camera's rate changes as cameras come and go. The
+        reader is slowed to match where it supports that — fetching pictures
+        faster than they are checked only costs network and CPU."""
+        self._process_interval = 1.0 / fps
+        if hasattr(self.reader, "_poll_interval") and self.reader._poll_interval is not None:
+            self.reader._poll_interval = 1.0 / fps
+
     def start(self):
         self._running = True
         self.reader.start()

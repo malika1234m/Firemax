@@ -6,9 +6,19 @@ from ha_agent import setup_ha
 CAMS = [("camera.ezviz_room", "EZVIZ Room")]
 
 
+def _flatten(card):
+    """A card and everything nested in it (conditional, vertical-stack)."""
+    yield card
+    if "card" in card:
+        yield from _flatten(card["card"])
+    for inner in card.get("cards", []):
+        yield from _flatten(inner)
+
+
 def _cards(view):
     for section in view.get("sections", []):
-        yield from section.get("cards", [])
+        for card in section.get("cards", []):
+            yield from _flatten(card)
 
 
 def test_dashboard_uses_no_entity_the_addon_never_creates():
@@ -36,8 +46,8 @@ def test_dashboard_shows_each_cameras_live_picture():
 
 
 def test_camera_status_is_written_in_plain_words():
-    cards = list(_cards(setup_ha.view_dashboard(CAMS)))
-    status = [c for c in cards if c.get("type") == "markdown"
+    stack = next(c for c in _cards(setup_ha.view_dashboard(CAMS)) if c["type"] == "vertical-stack")
+    status = [c for c in stack["cards"] if c.get("type") == "markdown"
               and "ha-alert" not in c["content"]
               and setup_ha.status_sensor("camera.ezviz_room") in c["content"]]
     assert status
@@ -95,13 +105,37 @@ def test_dashboard_lists_only_the_cameras_firemex_watches():
     assert setup_ha.cameras_to_show(found, None) == found
 
 
-def test_live_picture_and_evidence_sit_side_by_side_on_one_screen():
-    view = setup_ha.view_dashboard(CAMS)
-    assert view["max_columns"] == 2
-    live = [s for s in view["sections"] if any(c.get("entity") == "camera.ezviz_room" for c in s["cards"])]
-    assert live and live[0].get("column_span", 1) == 1          # half the width, not all of it
-    evidence = [s for s in view["sections"] if setup_ha.confirm_button("EZVIZ Room") in json.dumps(s)]
-    assert evidence and evidence[0] is not live[0] and evidence[0].get("column_span", 1) == 1
+def _alert_sections(view, label):
+    return [s for s in view["sections"] if setup_ha.confirm_button(label) in json.dumps(s)]
+
+
+def test_decision_panels_appear_only_for_the_camera_that_is_alerting():
+    # With many cameras the operator must not scan one panel per camera.
+    for view in (setup_ha.view_dashboard(CAMS), setup_ha.view_emergency(CAMS)):
+        sections = _alert_sections(view, "EZVIZ Room")
+        assert len(sections) == 1
+        for card in sections[0]["cards"]:
+            assert card["type"] == "conditional"
+            assert setup_ha.status_sensor("camera.ezviz_room") in json.dumps(card["conditions"])
+
+
+def test_camera_wall_fits_two_cameras_to_a_row():
+    many = [(f"camera.cam_{i}", f"Cam {i}") for i in range(12)]
+    wall = next(s for s in setup_ha.view_dashboard(many)["sections"]
+                if any(c.get("heading") == "All cameras" for c in s["cards"]))
+    tiles = [c for c in wall["cards"] if c["type"] == "vertical-stack"]
+    assert len(tiles) == 12 and all(c["grid_options"] == {"columns": 6} for c in tiles)
+
+
+def test_every_camera_is_on_the_wall_whatever_the_plan():
+    many = [(f"camera.cam_{i}", f"Cam {i}") for i in range(50)]
+    shown = {c.get("entity") for c in _cards(setup_ha.view_dashboard(many))}
+    assert all(e in shown for e, _ in many)
+
+
+def test_plan_coverage_is_shown_on_the_main_tabs():
+    for view in (setup_ha.view_dashboard(CAMS), setup_ha.view_emergency(CAMS)):
+        assert setup_ha.COVERAGE_SENSOR in json.dumps(view)
 
 
 def test_emergency_tab_has_no_redundant_incident_switch():
@@ -117,14 +151,15 @@ def test_history_lists_each_detection_once():
 def test_wide_sections_stack_their_cards_full_width():
     for view in setup_ha.dashboard(CAMS)["views"]:
         for section in view["sections"]:
-            if section.get("column_span", 1) > 1:
+            if section.get("column_span", 1) > 1 and not any(
+                    c.get("heading") == "All cameras" for c in section["cards"]):
                 for card in section["cards"]:
                     if card["type"] != "heading":
                         assert card.get("grid_options") == {"columns": "full"}, card["type"]
 
 
 def test_camera_status_is_read_before_its_picture():
-    section = next(s for s in setup_ha.view_dashboard(CAMS)["sections"]
-                   if any(c.get("entity") == "camera.ezviz_room" for c in s["cards"]))
-    kinds = [c["type"] for c in section["cards"]]
+    stack = next(c for c in _cards(setup_ha.view_dashboard(CAMS))
+                 if c["type"] == "vertical-stack")
+    kinds = [c["type"] for c in stack["cards"]]
     assert kinds.index("markdown") < kinds.index("picture-entity")

@@ -13,7 +13,7 @@ description: >-
   Detects fire and smoke in your existing Home Assistant cameras. Runs entirely
   on this machine — no account, no cloud, no internet needed after setup.
 slug: firemex_local
-version: "1.4.0"
+version: "1.5.0"
 url: https://github.com/malika1234m/Firemax/tree/main/addon/firemex-local
 
 image: ghcr.io/malika1234m/firemex-ha
@@ -50,9 +50,10 @@ options:
   confidence_threshold: 0.50
   alert_cooldown_seconds: 30
   detector_mode: yolo
-  model_url: https://github.com/malika1234m/Firemax/releases/download/model-v2/fire_model.pt
-  model_sha256: 11d7278e39803fa7504654b89a6f4f7ea455a8f9464fa38d64bb7f999702e0e6
+  model_url: https://github.com/malika1234m/Firemax/releases/download/model-v4/fire_model.pt
+  model_sha256: c29a62d0a76735165da5bc44b4a2c1737c33eb8191898aa8f533b5dbdf321396
   process_fps: 2
+  max_total_fps: 4
   clear_after_seconds: 120
   hazard_classes:
     - fire
@@ -83,6 +84,9 @@ schema:
   # Home Assistant's MJPEG proxy re-encodes, and a Pi running HA has other work
   # to do. Fire does not appear and vanish in half a second.
   process_fps: float(0.2,10)
+  # Pictures checked per second across ALL cameras together; each camera gets
+  # an equal share. A Raspberry Pi manages about 3, a mini PC 10 or more.
+  max_total_fps: float(0.5,60)
   clear_after_seconds: int(10,3600)
   # Which hazard classes raise an alert. Defaults to the learned classes only:
   # the colour and optical-flow branches misfire on Home Assistant's re-encoded

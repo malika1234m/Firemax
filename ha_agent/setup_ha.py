@@ -309,6 +309,9 @@ def automations(cameras):
 
 INCIDENT = "input_boolean.firemex_incident"
 STAND_DOWN = "input_button.firemex_stand_down"
+# Published by the add-on (ha_client.HISTORY_SENSOR); kept in step by a test.
+HISTORY_SENSOR = "sensor.firemex_detections"
+COVERAGE_SENSOR = "sensor.firemex_coverage"
 # Two columns: wide enough to read on a laptop, and it folds to one on a phone.
 COLUMNS = 2
 
@@ -359,43 +362,91 @@ def _status_banner(cameras):
         "{% endif %}")}
 
 
-def _camera_sections(entity, label):
-    """Two half-width sections side by side: the live picture with its status,
-    and — only while it is alerting — the evidence photo with the one button
-    that matters. Side by side, both fit on one screen with no scrolling."""
+def _alerting(entity):
+    """This camera is reporting fire or smoke right now (and no incident yet)."""
     sensor = status_sensor(entity)
-    alerting = {"condition": "and", "conditions": [
+    return {"condition": "and", "conditions": [
         {"condition": "state", "entity": sensor, "state_not": "clear"},
         {"condition": "state", "entity": sensor, "state_not": "camera_offline"},
+        {"condition": "state", "entity": sensor, "state_not": "unknown"},
+        {"condition": "state", "entity": sensor, "state_not": "unavailable"},
         {"condition": "state", "entity": INCIDENT, "state": "off"}]}
-    live = _section([
-        {"type": "heading", "heading": label, "heading_style": "title", "icon": "mdi:cctv"},
+
+
+def _status_line(entity):
+    sensor = status_sensor(entity)
+    return {"type": "markdown", "text_only": True, "content": (
+        f"{{% set s = states('{sensor}') %}}"
+        "{% if s == 'clear' %}<ha-icon icon=\"mdi:check-circle\"></ha-icon> No fire seen"
+        "{% elif s == 'camera_offline' %}<ha-icon icon=\"mdi:cctv-off\"></ha-icon> "
+        "Not sending pictures — check its power and Wi-Fi"
+        "{% elif s in ['unknown', 'unavailable'] %}<ha-icon icon=\"mdi:timer-sand\"></ha-icon> Starting up…"
+        "{% else %}<ha-icon icon=\"mdi:fire-alert\"></ha-icon> <b>Possible {{ s }}</b> — "
+        f"{{{{ state_attr('{sensor}', 'confidence') }}}} sure{{% endif %}}")}
+
+
+def _alert_section(entity, label, button_name, tap):
+    """One camera that is alerting: what it saw and the one button that matters.
+
+    The whole section is conditional, so with twenty cameras the operator sees
+    only the one or two that need a decision — not twenty panels to scan."""
+    sensor = status_sensor(entity)
+    return _section([{"type": "conditional", "conditions": [_alerting(entity)], "card": card}
+                     for card in (
+        {"type": "heading", "heading": f"{label} — is this a real fire?",
+         "heading_style": "title", "icon": "mdi:fire-alert"},
         {"type": "markdown", "text_only": True, "content": (
-            f"{{% set s = states('{sensor}') %}}"
-            "{% if s == 'clear' %}<ha-icon icon=\"mdi:check-circle\"></ha-icon> No fire seen"
-            "{% elif s == 'camera_offline' %}<ha-icon icon=\"mdi:cctv-off\"></ha-icon> "
-            "Not sending pictures — check its power and Wi-Fi"
-            "{% elif s in ['unknown', 'unavailable'] %}<ha-icon icon=\"mdi:timer-sand\"></ha-icon> Starting up…"
-            "{% else %}<ha-icon icon=\"mdi:fire-alert\"></ha-icon> <b>Possible {{ s }}</b> — "
-            f"{{{{ state_attr('{sensor}', 'confidence') }}}} sure{{% endif %}}")},
-        # Stills, not "live": this camera streams H.265, which browsers cannot
-        # play, so a live view is just a black box.
-        {"type": "picture-entity", "entity": entity, "camera_view": "auto",
-         "show_name": False, "show_state": False},
-    ])
-    evidence = _section([
-        {"type": "conditional", "conditions": [alerting], "card": {
-            "type": "heading", "heading": "Is this a real fire?", "heading_style": "title",
-            "icon": "mdi:fire-alert"}},
-        {"type": "conditional", "conditions": [alerting], "card": {
-            "type": "picture-entity", "entity": snapshot_camera(entity),
-            "name": "What FiremeX saw", "show_state": False}},
-        {"type": "conditional", "conditions": [alerting], "card": {
-            "type": "tile", "entity": confirm_button(label),
-            "name": "Yes, it is a real fire", "icon": "mdi:fire-alert", "color": "red", "hide_state": True,
-            "tap_action": {"action": "toggle"}}},
-    ])
-    return [live, evidence]
+            f"<b>Possible {{{{ states('{sensor}') }}}}</b>, "
+            f"{{{{ state_attr('{sensor}', 'confidence') }}}} sure. "
+            "Look at the photo before you press anything.")},
+        {"type": "picture-entity", "entity": snapshot_camera(entity),
+         "name": "What FiremeX saw", "show_state": False},
+        {"type": "tile", "entity": confirm_button(label), "name": button_name,
+         "icon": "mdi:fire-alert", "color": "red", "hide_state": True, **tap},
+    )])
+
+
+def _camera_wall(cameras):
+    """Every camera as a small picture with a one-line status, two to a row.
+    The wall scales to many cameras; the decisions happen in the alert panels."""
+    cards = [{"type": "heading", "heading": "All cameras", "heading_style": "title",
+              "icon": "mdi:cctv"}]
+    for entity, label in cameras:
+        cards.append({"type": "vertical-stack", "grid_options": {"columns": 6}, "cards": [
+            {"type": "heading", "heading": label, "heading_style": "subtitle"},
+            _status_line(entity),
+            # Stills, not "live": this camera streams H.265, which browsers
+            # cannot play, so a live view is just a black box.
+            {"type": "picture-entity", "entity": entity, "camera_view": "auto",
+             "show_name": False, "show_state": False},
+        ]})
+    return {"type": "grid", "column_span": COLUMNS, "cards": cards}
+
+
+def _coverage_note():
+    """Says out loud when some cameras are not watched (plan limit or options)."""
+    return {"type": "markdown", "text_only": True, "content": (
+        f"{{% set n = state_attr('{COVERAGE_SENSOR}', 'note') %}}"
+        "{% if n %}<ha-alert alert-type=\"info\">{{ n }}</ha-alert>{% endif %}")}
+
+
+def _detections_gallery(limit=None):
+    """Recent detections, newest first, each with the photo that triggered it.
+
+    On the Emergency tab this is how an operator who arrives after an alert
+    has cleared itself still sees where fire was seen, and when."""
+    take = f"[:{limit}]" if limit else ""
+    return {"type": "markdown", "content": (
+        f"{{% set d = (state_attr('{HISTORY_SENSOR}', 'detections') or []){take} %}}"
+        "{% if not d %}No fire or smoke has been detected yet. Every detection will "
+        "appear here with its photo.{% endif %}"
+        "{% for e in d %}\n"
+        "### {{ 'Fire' if e.hazard in ['fire', 'flame'] else e.hazard | capitalize }} — {{ e.camera }}\n"
+        "{{ as_timestamp(e.time) | timestamp_custom('%d %b %Y, %H:%M:%S') }} · "
+        "{{ (e.confidence * 100) | int }}% sure\n\n"
+        "{% if e.photo %}<img src=\"{{ e.photo }}\" width=\"100%\">{% else %}"
+        "<i>No photo saved for this one.</i>{% endif %}\n"
+        "{% endfor %}")}
 
 
 def _actuator_tiles():
@@ -419,12 +470,16 @@ def view_dashboard(cameras):
         "sections": [
             _section([
                 _status_banner(cameras),
+                _coverage_note(),
                 _when(INCIDENT, {"type": "tile", "entity": STAND_DOWN,
                                  "name": "All safe — end the incident",
                                  "icon": "mdi:check-circle-outline", "color": "green", "hide_state": True,
                                  "tap_action": {"action": "toggle"}}, state="on"),
             ], COLUMNS),
-            *[sec for e, n in cameras for sec in _camera_sections(e, n)],
+            # Only the cameras alerting right now, each with its decision button.
+            *[_alert_section(e, n, "Yes, it is a real fire", {"tap_action": {"action": "toggle"}})
+              for e, n in cameras],
+            _camera_wall(cameras),
         ],
     }
 
@@ -434,7 +489,19 @@ def view_emergency(cameras):
         "title": "Emergency", "path": "emergency",
         "theme": "FiremeX", "type": "sections", "max_columns": COLUMNS,
         "sections": [
-            _section([_status_banner(cameras)], COLUMNS),
+            _section([_status_banner(cameras), _coverage_note()], COLUMNS),
+            # Where fire is being seen right now. Declaring starts the whole
+            # building response, so here the button opens a dialog first.
+            *[_alert_section(e, n, "Fire here — declare",
+                             {"tap_action": {"action": "more-info"},
+                              "icon_tap_action": {"action": "more-info"}})
+              for e, n in cameras],
+            # For whoever arrives after an alert cleared itself.
+            _section([
+                {"type": "heading", "heading": "Recent detections", "heading_style": "title",
+                 "icon": "mdi:image-multiple"},
+                _detections_gallery(limit=6),
+            ], COLUMNS),
             {"type": "grid", "cards": [
                 {"type": "heading", "heading": "Building response", "heading_style": "title",
                  "icon": "mdi:home-lightning-bolt"},
@@ -472,6 +539,9 @@ def view_history(cameras):
         "title": "History", "path": "history",
         "theme": "FiremeX", "type": "sections", "max_columns": COLUMNS,
         "sections": [_section([
+            {"type": "heading", "heading": "Detections", "heading_style": "title",
+             "icon": "mdi:image-multiple"},
+            _detections_gallery(),
             {"type": "heading", "heading": "Last 24 hours", "heading_style": "title",
              "icon": "mdi:history"},
             {"type": "logbook", "hours_to_show": 24, "entities": [

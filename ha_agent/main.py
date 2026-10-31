@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ha_agent import ezviz as ezviz_module          # noqa: E402
+from ha_agent import history as history_module      # noqa: E402
 from ha_agent import licence as licence_module      # noqa: E402
 from ha_agent import options as opts_module          # noqa: E402
 from ha_agent.ha_client import HAClient, OFFLINE_HAZARD  # noqa: E402
@@ -221,12 +222,32 @@ class CameraState:
         self.offline_alerted = False
 
 
+def camera_fps(options, cameras: int) -> float:
+    """Checks per second for each camera, sharing max_total_fps between them."""
+    if cameras <= 0:
+        return options.process_fps
+    return min(options.process_fps, options.max_total_fps / cameras)
+
+
+def rebalance(pipelines: dict, options) -> float:
+    """Give every running camera its share of the checking budget."""
+    fps = camera_fps(options, len(pipelines))
+    for pipeline in pipelines.values():
+        pipeline.set_process_fps(fps)
+    return fps
+
+
 def reconcile(client, options, detector, pipelines: dict, states: dict, on_event,
-              max_cameras=None):
-    """Make the running pipelines match Home Assistant's camera list."""
+              max_cameras=None) -> bool:
+    """Make the running pipelines match Home Assistant's camera list.
+
+    Returns True when the set of watched cameras changed, so the caller can
+    rebuild the dashboard and rebalance the checking budget."""
     from pipeline import EdgePipeline
 
     wanted = wanted_cameras(client, options, max_cameras)
+    before = set(pipelines)
+    fps = camera_fps(options, len(wanted))
 
     for entity_id in list(pipelines):
         if entity_id not in wanted:
@@ -242,15 +263,47 @@ def reconcile(client, options, detector, pipelines: dict, states: dict, on_event
              "zone": "Home Assistant", "stream_url": entity_id},
             detector, on_event,
             options.confidence_threshold, options.alert_cooldown_seconds,
-            process_fps=options.process_fps,
+            process_fps=fps,
             # Still images at the detection rate: the Supervisor proxy cannot
             # carry an endless MJPEG stream (see HAClient.camera_snapshot).
-            reader_factory=reader_factory(client, poll_interval=1.0 / options.process_fps),
+            reader_factory=reader_factory(client, poll_interval=1.0 / fps),
         )
         pipeline.start()
         pipelines[entity_id] = pipeline
         states[entity_id] = CameraState(cam["name"])
         logger.info(f"camera added: {cam['name']} ({entity_id})")
+
+    changed = set(pipelines) != before
+    if changed and pipelines:
+        logger.info(f"watching {len(pipelines)} camera(s), each checked "
+                    f"{rebalance(pipelines, options):.2g}× a second")
+    return changed
+
+
+_provision_lock = threading.Lock()
+
+
+def provision(client, options, cameras: set) -> None:
+    """Create or update the dashboard, helpers and automations for `cameras`.
+
+    Runs at start and again whenever the watched cameras change. Never raises:
+    dashboard setup must not stop or delay detection."""
+    if not options.provision_dashboard:
+        return
+    with _provision_lock:
+        try:
+            from ha_agent import setup_ha
+            setup_ha.main(url=client.base_url.removesuffix("/api"),
+                          token=client.token,
+                          snapshot_dir=options.snapshot_dir,
+                          ha_config_dir=options.ha_config_dir,
+                          only=cameras)
+        except SystemExit as exc:
+            # No cameras yet is the normal first-run case, not a failure: the
+            # agent keeps running and picks them up when they appear.
+            logger.warning(f"provisioning skipped: {exc}")
+        except Exception:
+            logger.exception("provisioning failed; continuing without it")
 
 
 def run():
@@ -282,21 +335,7 @@ def run():
     # installs the add-on and presses Start should get the dashboard, the
     # helpers and the automations without running a script — and detection is
     # useless to them until there is somewhere to review an alert.
-    if options.provision_dashboard:
-        try:
-            from ha_agent import setup_ha
-            setup_ha.main(url=client.base_url.removesuffix("/api"),
-                          token=client.token,
-                          snapshot_dir=options.snapshot_dir,
-                          ha_config_dir=options.ha_config_dir,
-                          only=set(wanted_cameras(client, options, max_cameras)))
-        except SystemExit as exc:
-            # No cameras yet is the normal first-run case, not a failure: the
-            # agent keeps running and picks them up when they appear.
-            logger.warning(f"provisioning skipped: {exc}")
-        except Exception:
-            # Never let dashboard setup stop detection from starting.
-            logger.exception("provisioning failed; continuing without it")
+    provision(client, options, set(wanted_cameras(client, options, max_cameras)))
 
     detector = build_detector(options)
 
@@ -308,8 +347,11 @@ def run():
         """A confirmed hazard from one camera. EdgePipeline has already applied
         the confidence threshold and the per-camera cooldown."""
         entity_id = event["camera_id"]
+        now_iso = _now_iso()
         snapshot = (write_snapshot(options.snapshot_dir, entity_id, event.get("frame_b64"))
                     if options.save_snapshots else None)
+        if options.save_snapshots:
+            client.publish_history(history_module.record(event, now_iso, options.snapshot_dir))
         with lock:
             last_hazard["at"] = time.time()
             st = states.get(entity_id)
@@ -326,7 +368,7 @@ def run():
             camera_name=event["camera_name"],
             confidence=float(event["confidence"]),
             entity_id=entity_id,
-            timestamp=_now_iso(),
+            timestamp=now_iso,
             snapshot=snapshot,
         )
 
@@ -336,8 +378,6 @@ def run():
         logger.warning("No Home Assistant camera entities to watch yet — add a "
                        "camera integration in Home Assistant and it will be "
                        "picked up automatically.")
-    else:
-        logger.info(f"watching {len(pipelines)} camera(s)")
 
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
@@ -357,6 +397,12 @@ def run():
                          name="ezviz-register").start()
 
     client.publish_clear(_now_iso())
+    # Home Assistant forgets states the add-on set when it restarts; the list
+    # in /data does not, so the History tab is refilled from it.
+    client.publish_history(history_module.load())
+    client.publish_coverage(len(pipelines), len(client.list_cameras()),
+                            entitlement.get("plan", "free"), max_cameras,
+                            camera_fps(options, len(pipelines)))
     cleared = True
     last_discovery = last_publish = last_licence = time.time()
 
@@ -420,11 +466,21 @@ def run():
 
         if now - last_discovery >= DISCOVERY_INTERVAL:
             last_discovery = now
+            # Cheap, and refills the History tab if Home Assistant restarted.
+            client.publish_history(history_module.load())
             try:
-                reconcile(client, options, detector, pipelines, states, on_event,
-                          max_cameras)
+                if reconcile(client, options, detector, pipelines, states, on_event,
+                             max_cameras):
+                    # A camera came or went: it needs its own panel, photo and
+                    # confirm button, which used to appear only after a restart.
+                    # In the background, so detection never waits on it.
+                    threading.Thread(target=provision, args=(client, options, set(pipelines)),
+                                     daemon=True, name="provision").start()
             except Exception as exc:
                 logger.warning(f"camera discovery failed, keeping current set: {exc}")
+            client.publish_coverage(len(pipelines), len(client.list_cameras()),
+                                    entitlement.get("plan", "free"), max_cameras,
+                                    camera_fps(options, len(pipelines)))
 
         stop.wait(1.0)
 

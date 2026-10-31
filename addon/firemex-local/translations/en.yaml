@@ -30,6 +30,11 @@ configuration:
     description: >-
       How often each camera is checked. Default 2. Raise it only if this machine
       has power to spare.
+  max_total_fps:
+    name: Pictures checked per second, all cameras together
+    description: >-
+      Shared fairly between your cameras, so many cameras never fall
+      behind. Raspberry Pi: about 3. Mini PC: 10 or more.
   clear_after_seconds:
     name: All-clear after (seconds)
     description: >-
