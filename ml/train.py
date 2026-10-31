@@ -91,6 +91,16 @@ def main():
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--name", default="firemex_v1")
+    # Fine-tuning an already-trained model (e.g. model-v2 on our own camera's
+    # footage) wants a small learning rate and a frozen backbone, so a few
+    # hundred new pictures adjust the model rather than overwrite what it
+    # learned from D-Fire.
+    ap.add_argument("--lr0", type=float, default=None, help="initial learning rate (default: Ultralytics')")
+    ap.add_argument("--freeze", type=int, default=None, help="freeze the first N layers (10 = backbone)")
+    # Validation during training on MPS truncates NMS and reports scores far
+    # too low (see ml/README.md), which also misleads early stopping. --no-val
+    # trains every epoch and leaves scoring to a separate CPU run afterwards.
+    ap.add_argument("--no-val", action="store_true", help="no validation or early stopping during training")
     ap.add_argument("--quick", action="store_true",
                     help="2 epochs at 320px — wiring check, not a real run")
     ap.add_argument("--resume", nargs="?", const="", metavar="CHECKPOINT",
@@ -116,6 +126,13 @@ def main():
     from ultralytics import YOLO
     model = YOLO(args.model)
 
+    extra = {}
+    if args.lr0 is not None:
+        # optimizer="auto" silently ignores lr0, so name one explicitly.
+        extra.update(lr0=args.lr0, optimizer="AdamW")
+    if args.freeze is not None:
+        extra["freeze"] = args.freeze
+
     model.train(
         data=args.data,
         epochs=args.epochs,
@@ -123,9 +140,10 @@ def main():
         batch=args.batch,
         device=device,
         name=args.name,
-        patience=10,          # stop early if validation stops improving
+        patience=0 if args.no_val else 10,   # stop early if validation stops improving
         seed=0,               # reproducible — an examiner may ask
-        val=True,
+        val=not args.no_val,
+        **extra,
         plots=True,           # emits the curves and confusion matrix
         # Hue jitter is deliberately near-zero: hazard classes here are
         # separated by FLAME COLOUR (blue gas vs orange fire vs green
@@ -142,6 +160,9 @@ def main():
         mosaic=1.0,
     )
 
+    if args.no_val:
+        print(f"\n[train] done — score runs/detect/{args.name}/weights/last.pt on CPU separately")
+        return
     metrics = model.val(data=args.data, device=device)
     print("\n[train] final validation")
     print(f"  mAP50    : {metrics.box.map50:.3f}")
