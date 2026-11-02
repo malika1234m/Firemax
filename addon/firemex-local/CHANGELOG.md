@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.0
+
+- **New fire model (model-v5) that knows small flames.** model-v4 fine-tuned
+  with a third class, `small_flame`, from our camera's lighter clips at close,
+  mid and about 1 m. A lighter or candle is now recognised as a small flame
+  instead of being ignored or mistaken for fire. **A small flame never raises
+  an alert** — it is not a hazard class, even if added to `hazard_classes`.
+  On the held-out lighter clip it finds the flame in every frame where the
+  lighter is lit; burning paper is still caught (87% of frames, v4: 93%).
+- **Known weakness:** smoke blown straight at the lens scores lower than with
+  model-v4 (0.17, was 0.56), so it no longer alerts in that test. Our camera
+  footage has no smoke yet; recording smoke clips is the next dataset step.
+  To stay on model-v4, set `model_url` to the model-v4 release and
+  `model_sha256` to `c29a62d0a76735165da5bc44b4a2c1737c33eb8191898aa8f533b5dbdf321396`.
+
 ## 1.5.0
 
 - **New fire model (model-v4, YOLO26n).** Trained on all of D-Fire, the Home

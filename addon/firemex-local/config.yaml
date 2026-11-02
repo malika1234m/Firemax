@@ -13,7 +13,7 @@ description: >-
   Detects fire and smoke in your existing Home Assistant cameras. Runs entirely
   on this machine — no account, no cloud, no internet needed after setup.
 slug: firemex_local
-version: "1.5.0"
+version: "1.6.0"
 url: https://github.com/malika1234m/Firemax/tree/main/addon/firemex-local
 
 image: ghcr.io/malika1234m/firemex-ha
@@ -50,8 +50,8 @@ options:
   confidence_threshold: 0.50
   alert_cooldown_seconds: 30
   detector_mode: yolo
-  model_url: https://github.com/malika1234m/Firemax/releases/download/model-v4/fire_model.pt
-  model_sha256: c29a62d0a76735165da5bc44b4a2c1737c33eb8191898aa8f533b5dbdf321396
+  model_url: https://github.com/malika1234m/Firemax/releases/download/model-v5/fire_model.pt
+  model_sha256: 359294a206b666557a726a8390163b555e1e04edaea7b4615d1145955c5a05ab
   process_fps: 2
   max_total_fps: 4
   clear_after_seconds: 120

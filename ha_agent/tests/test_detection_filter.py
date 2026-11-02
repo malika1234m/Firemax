@@ -43,6 +43,14 @@ def test_colour_rule_fire_alerts_when_opted_in():
     assert f.is_hazard(f.detect(None)) == [colour_fire]
 
 
+def test_small_flame_never_alerts_even_when_listed():
+    # model-v5 reports lighters and candles as small_flame: a flame, not a fire.
+    detector = object.__new__(HazardDetector)
+    f = main.ClassFilteredDetector(detector, ["fire", "smoke", "flame", "small_flame"])
+    flame, fire = _box("small_flame"), _box("fire")
+    assert f.is_hazard([flame, fire]) == [fire]
+
+
 def test_free_tier_warning_is_logged_once_not_every_discovery(caplog):
     main._last_limit_notice = None
     cams = {"camera.a": "A", "camera.b": "B"}

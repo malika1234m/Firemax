@@ -7,13 +7,13 @@ the Supervisor renders that to /data/options.json.
 import json
 import os
 
-ADDON_VERSION = "1.5.0"
+ADDON_VERSION = "1.6.0"
 
 # The model this release ships — must match model_url/model_sha256 in
 # addon/firemex-local/config.yaml (a test checks it).
 RELEASES = "https://github.com/malika1234m/Firemax/releases/download"
-CURRENT_MODEL = (f"{RELEASES}/model-v4/fire_model.pt",
-                 "c29a62d0a76735165da5bc44b4a2c1737c33eb8191898aa8f533b5dbdf321396")
+CURRENT_MODEL = (f"{RELEASES}/model-v5/fire_model.pt",
+                 "359294a206b666557a726a8390163b555e1e04edaea7b4615d1145955c5a05ab")
 
 # Models earlier releases shipped. The Supervisor keeps saved options across
 # updates, so anyone who once pressed Save on the Configuration tab has the old
@@ -24,6 +24,7 @@ SHIPPED_MODEL_URLS = {
     f"{RELEASES}/v0.1.0/fire_model.pt",
     f"{RELEASES}/model-v2/fire_model.pt",
     f"{RELEASES}/model-v3/fire_model.pt",
+    f"{RELEASES}/model-v4/fire_model.pt",
 }
 
 OPTIONS_PATH = os.environ.get("OPTIONS_PATH", "/data/options.json")
