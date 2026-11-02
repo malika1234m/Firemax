@@ -6,16 +6,23 @@
 Reads ml/datasets/own_camera/clips.csv and writes ml/datasets/own/:
 
     own/{train,test}/images/*.jpg
-    own/{train,test}/labels/*.txt      YOLO boxes, class ids as in model-v2 (0 smoke, 1 fire)
+    own/{train,test}/labels/*.txt      YOLO boxes: 0 smoke, 1 fire (as in model-v2..v4), 2 small_flame
     own/to_label/                      every frame that needs a human to check its boxes
     own/review/                        contact sheets of the draft boxes
+    own/preview/                       every labelled picture, full size, boxes and class drawn
+    own/preview/no_box/                every 5th picture with no box, to check nothing was missed
     own/data.yaml
 
 How the boxes are made — read this before trusting them:
 
-* Clips whose label starts with a NEGATIVE prefix (lighter_, no_) get empty
-  label files. They teach the model what is NOT a fire: on this camera a
-  lighter flame is a tiny over-exposed white dot, the same as a lamp.
+* Clips whose label starts with a NEGATIVE prefix (no_) get empty label
+  files. They teach the model what is NOT a fire.
+* Lighter clips (lighter_) get `small_flame` boxes, a class of its own: a
+  lighter or candle is not a fire, so it must not raise the fire alarm, but
+  the model should still know it is a flame. On this camera the flame is an
+  over-exposed white core with a blue base; the box is drawn around that core
+  (small_flame_box). Frames where the lighter is unlit get no box. These
+  boxes were checked by eye on contact sheets for all three 2026-10-26 clips.
 * Every other clip gets DRAFT fire boxes from the flame's colour. This camera
   renders burning paper pink/purple rather than orange, which is also why
   model-v2 scores it low. Model-v2 itself is not used for drafts: it boxed
@@ -42,10 +49,12 @@ SRC = os.path.join(ML, "datasets", "own_camera")
 OUT = os.path.join(ML, "datasets", "own")
 
 # Same ids as model-v2 (release-assets/model-v2), which this dataset fine-tunes.
-NAMES = {0: "smoke", 1: "fire"}
+NAMES = {0: "smoke", 1: "fire", 2: "small_flame"}
 FIRE = 1
+SMALL_FLAME = 2
 
-NEGATIVE_PREFIXES = ("lighter_", "no_")
+NEGATIVE_PREFIXES = ("no_",)
+SMALL_FLAME_PREFIXES = ("lighter_",)
 
 # Hand review of the 2026-10-26 recordings (frame-index ranges, inclusive),
 # decided from the contact sheets in own/review/. In a "fire" range the flame
@@ -60,8 +69,10 @@ REVIEWED = {
     "take3_03.mp4": {"fire": [(0, 99)], "drop": [(110, 121)]},
 }
 FIRE_REGION_TOP = 0.4        # fire boxes only from flame below 40% of the height
-# Held out whole: one fire clip and one lighter clip.
-DEFAULT_TEST = ("take3_02.mp4", "lighter_1m_03.mp4")
+# Held out whole: one fire clip and one lighter clip. lighter_1m_02 has the
+# lighter at mid distance and about 1 m; lighter_1m_01 (close and mid) and
+# lighter_1m_03 train.
+DEFAULT_TEST = ("take3_02.mp4", "lighter_1m_02.mp4")
 MIN_FLAME_AREA = 1500        # pixels, at 1920x1080
 
 
@@ -107,6 +118,29 @@ def flame_boxes(frame):
     return lines
 
 
+def small_flame_box(frame):
+    """One small_flame box around a lighter flame, or none (YOLO lines).
+
+    The flame's core saturates the sensor: all three channels >= 245. The
+    white date/time overlay (bottom strip and top-left corner) is masked out,
+    and specks smaller than 150 pixels are ignored. The core is padded to take
+    in the dimmer edge and, below it, the blue base of the flame.
+    """
+    fh, fw = frame.shape[:2]
+    core = (frame.min(axis=2) >= 245).astype(np.uint8)
+    core[int(0.925 * fh):] = 0
+    core[:int(0.1 * fh), :int(0.21 * fw)] = 0
+    n, _, stats, _ = cv2.connectedComponentsWithStats(core)
+    found = [s for s in stats[1:n] if s[4] >= 150 and s[3] >= 12]
+    if not found:
+        return []
+    x, y, w, h, _ = max(found, key=lambda s: s[4])
+    x1, x2 = max(0, x - w // 2 - 4), min(fw, x + w + w // 2 + 4)
+    y1, y2 = max(0, y - int(0.35 * h) - 4), min(fh, y + h + int(0.6 * h) + 4)
+    return [f"{SMALL_FLAME} {(x1 + x2) / 2 / fw:.6f} {(y1 + y2) / 2 / fh:.6f} "
+            f"{(x2 - x1) / fw:.6f} {(y2 - y1) / fh:.6f}"]
+
+
 def in_ranges(idx, ranges):
     return any(a <= idx <= b for a, b in ranges)
 
@@ -140,7 +174,7 @@ def review_sheet(items, path):
         for line in lines:
             c, x, y, bw, bh = line.split()
             x, y, bw, bh = float(x) * w, float(y) * h, float(bw) * w, float(bh) * h
-            colour = (0, 0, 255) if int(c) == FIRE else (255, 160, 0)
+            colour = {FIRE: (0, 0, 255), SMALL_FLAME: (0, 255, 255)}.get(int(c), (255, 160, 0))
             cv2.rectangle(img, (int(x - bw / 2), int(y - bh / 2)), (int(x + bw / 2), int(y + bh / 2)), colour, 6)
         tile = cv2.resize(img, (480, 270))
         cv2.putText(tile, os.path.basename(img_path)[:-4], (6, 22), 0, 0.6, (0, 255, 0), 2)
@@ -149,6 +183,20 @@ def review_sheet(items, path):
         tiles.append(np.zeros_like(tiles[0]))
     rows = [np.hstack(tiles[r:r + 4]) for r in range(0, len(tiles), 4)]
     cv2.imwrite(path, np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 70])
+
+
+def preview(split, stem, lines, path):
+    """Write one full-size picture with its boxes and class names drawn on."""
+    img = cv2.imread(os.path.join(OUT, split, "images", stem + ".jpg"))
+    h, w = img.shape[:2]
+    for line in lines:
+        c, x, y, bw, bh = line.split()
+        x1, y1 = int((float(x) - float(bw) / 2) * w), int((float(y) - float(bh) / 2) * h)
+        x2, y2 = int((float(x) + float(bw) / 2) * w), int((float(y) + float(bh) / 2) * h)
+        colour = {FIRE: (0, 0, 255), SMALL_FLAME: (0, 215, 255)}.get(int(c), (255, 160, 0))
+        cv2.rectangle(img, (x1, y1), (x2, y2), colour, 4)
+        cv2.putText(img, NAMES[int(c)], (x1, max(30, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 1.4, colour, 3)
+    cv2.imwrite(os.path.join(path, f"{split}_{stem}.jpg"), img, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
 
 def build(args):
@@ -160,6 +208,8 @@ def build(args):
     os.makedirs(os.path.join(todo, "images"))
     os.makedirs(os.path.join(todo, "labels"))
     os.makedirs(os.path.join(OUT, "review"))
+    os.makedirs(os.path.join(OUT, "preview", "no_box"))
+    unboxed = 0
 
     with open(os.path.join(SRC, "clips.csv")) as fh:
         clips = list(csv.DictReader(fh))
@@ -171,11 +221,14 @@ def build(args):
         name = os.path.basename(path)
         split = "test" if name in args.test else "train"
         negative = clip["label"].startswith(NEGATIVE_PREFIXES)
+        small = clip["label"].startswith(SMALL_FLAME_PREFIXES)
         items = []
         for idx, frame in frames(path, args.every, float(clip["fps"])):
             stem = f"{name[:-4]}_{idx:05d}"
             if negative:
                 lines = []
+            elif small:
+                lines = small_flame_box(frame)
             elif name in REVIEWED:
                 lines = reviewed_label(name, idx, frame)
                 if lines is None:
@@ -187,15 +240,22 @@ def build(args):
             text = "\n".join(lines) + ("\n" if lines else "")
             with open(os.path.join(OUT, split, "labels", stem + ".txt"), "w") as fh:
                 fh.write(text)
-            if not negative and name not in REVIEWED:
+            if not negative and not small and name not in REVIEWED:
                 shutil.copy(img_path, os.path.join(todo, "images"))
                 with open(os.path.join(todo, "labels", stem + ".txt"), "w") as fh:
                     fh.write(text)
             items.append((img_path, lines))
+            if lines:
+                preview(split, stem, lines, os.path.join(OUT, "preview"))
+            else:
+                unboxed += 1
+                if unboxed % 5 == 1:
+                    preview(split, stem, lines, os.path.join(OUT, "preview", "no_box"))
         if items:
             review_sheet(items, os.path.join(OUT, "review", name[:-4] + ".jpg"))
         boxed = sum(1 for _, lines in items if lines)
-        kind = "negative" if negative else ("hand-reviewed" if name in REVIEWED else "draft boxes, needs checking")
+        kind = ("negative" if negative else "small_flame, checked by eye" if small
+                else "hand-reviewed" if name in REVIEWED else "draft boxes, needs checking")
         print(f"{name:22s} {split:5s} {len(items):4d} frames  {boxed:4d} with boxes  ({kind})")
 
     with open(os.path.join(todo, "labels.txt"), "w") as fh:
