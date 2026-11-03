@@ -4,7 +4,7 @@ import { ADD_REPO_URL, ADDON_NAME, OPEN_ADDON_URL, REPO_URL } from '../lib/homeA
 
 function Num({ n }) {
   return (
-    <span className="w-7 h-7 rounded-full bg-brand/15 border border-brand/35 text-brand font-mono text-[12px] font-bold flex items-center justify-center shrink-0">
+    <span className="relative z-[1] w-7 h-7 rounded-full bg-void border border-brand/45 text-brand font-mono text-[12px] font-bold flex items-center justify-center shrink-0">
       {n}
     </span>
   )
@@ -21,13 +21,13 @@ function Num({ n }) {
  */
 export default function InstallSteps({ token }) {
   return (
-    <ol className="space-y-5">
-      <li className="flex gap-4">
+    <ol>
+      <li className="relative flex gap-4 pb-9 last:pb-0 before:absolute before:left-[13px] before:top-9 before:bottom-2 before:w-px before:bg-white/[0.08] last:before:hidden">
         <Num n={1} />
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <p className="text-[14px] text-slate-200 font-medium">Open FiremeX in your Home Assistant</p>
-            <p className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">
+            <p className="text-[15px] text-white font-medium">Open FiremeX in your Home Assistant</p>
+            <p className="text-[13px] text-slate-400 mt-1.5 leading-relaxed">
               This opens the add-on store in your own Home Assistant. If the FiremeX repository
               is not added yet, Home Assistant asks to add it — the address is already typed in,
               so just press <span className="text-slate-300">Add</span>.
@@ -35,28 +35,28 @@ export default function InstallSteps({ token }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <a href={OPEN_ADDON_URL} target="_blank" rel="noreferrer"
-               className="inline-flex items-center gap-2 bg-brand text-white text-[13px] font-semibold px-4 py-2.5 rounded-lg hover:bg-ember-dark transition-colors">
+               className="btn-primary">
               <Store size={15} /> Open the add-on store <ExternalLink size={13} />
             </a>
             <a href={ADD_REPO_URL} target="_blank" rel="noreferrer"
-               className="inline-flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-slate-200 border border-white/[0.1] px-3 py-2 rounded-lg transition-colors">
+               className="btn-secondary">
               Only add the repository <ExternalLink size={11} />
             </a>
           </div>
-          <p className="text-[11.5px] text-slate-600 flex items-start gap-1.5">
+          <p className="text-[11.5px] text-slate-400 flex items-start gap-1.5">
             <Info size={12} className="shrink-0 mt-0.5" />
             <span>
               The first time, my.home-assistant.io asks for your Home Assistant address
-              (for example <span className="font-mono text-slate-500">http://homeassistant.local:8123</span>)
+              (for example <span className="font-mono text-slate-400">http://homeassistant.local:8123</span>)
               and remembers it.
             </span>
           </p>
           <details className="group">
-            <summary className="text-[12px] text-slate-500 hover:text-slate-300 cursor-pointer select-none">
+            <summary className="text-[12px] text-slate-400 hover:text-slate-300 cursor-pointer select-none">
               Button not working? Add the repository by hand
             </summary>
             <div className="mt-3 space-y-3">
-              <p className="text-[12px] text-slate-500 leading-relaxed">
+              <p className="text-[12px] text-slate-400 leading-relaxed">
                 In Home Assistant open <span className="text-slate-300">Settings → Apps → Install app</span>{' '}
                 (older versions: <span className="text-slate-300">Settings → Add-ons → Add-on Store</span>),
                 press <span className="text-slate-300">⋮ → Repositories</span>, paste this address and press Add.
@@ -67,25 +67,25 @@ export default function InstallSteps({ token }) {
         </div>
       </li>
 
-      <li className="flex gap-4">
+      <li className="relative flex gap-4 pb-9 last:pb-0 before:absolute before:left-[13px] before:top-9 before:bottom-2 before:w-px before:bg-white/[0.08] last:before:hidden">
         <Num n={2} />
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] text-slate-200 font-medium">Install it</p>
-          <p className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">
+          <p className="text-[15px] text-white font-medium">Install it</p>
+          <p className="text-[13px] text-slate-400 mt-1.5 leading-relaxed">
             Open <span className="text-slate-300">{ADDON_NAME}</span> and press{' '}
             <span className="text-slate-300">Install</span>. It takes a few minutes.
           </p>
         </div>
       </li>
 
-      <li className="flex gap-4">
+      <li className="relative flex gap-4 pb-9 last:pb-0 before:absolute before:left-[13px] before:top-9 before:bottom-2 before:w-px before:bg-white/[0.08] last:before:hidden">
         <Num n={3} />
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <p className="text-[14px] text-slate-200 font-medium flex items-center gap-2">
-              <KeyRound size={14} className="text-slate-500" /> Paste your access token
+            <p className="text-[15px] text-white font-medium flex items-center gap-2">
+              <KeyRound size={14} className="text-slate-400" /> Paste your access token
             </p>
-            <p className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">
+            <p className="text-[13px] text-slate-400 mt-1.5 leading-relaxed">
               On the add-on's <span className="text-slate-300">Configuration</span> tab, paste it into{' '}
               <span className="font-mono text-slate-300">licence_key</span> and press{' '}
               <span className="text-slate-300">Save</span>.
@@ -97,13 +97,13 @@ export default function InstallSteps({ token }) {
         </div>
       </li>
 
-      <li className="flex gap-4">
+      <li className="relative flex gap-4 pb-9 last:pb-0 before:absolute before:left-[13px] before:top-9 before:bottom-2 before:w-px before:bg-white/[0.08] last:before:hidden">
         <Num n={4} />
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] text-slate-200 font-medium flex items-center gap-2">
-            <Play size={14} className="text-slate-500" /> Press Start
+          <p className="text-[15px] text-white font-medium flex items-center gap-2">
+            <Play size={14} className="text-slate-400" /> Press Start
           </p>
-          <p className="text-[12.5px] text-slate-500 mt-1 leading-relaxed">
+          <p className="text-[13px] text-slate-400 mt-1.5 leading-relaxed">
             The add-on downloads the fire model, creates the FiremeX dashboard in your Home
             Assistant sidebar, and checks your token with us. This page shows it as connected
             within a minute.
