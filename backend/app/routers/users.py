@@ -36,7 +36,7 @@ async def add_user(body: UserCreateByAdmin, admin: UserPublic = Depends(require_
     db = get_db()
     email = body.email.strip().lower()
     if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
+        raise HTTPException(status_code=409, detail="Someone already has an account with this email.")
 
     org = await db.organizations.find_one({"org_id": admin.org_id})
     limits = await get_plan_limits(org["plan"])
@@ -44,7 +44,7 @@ async def add_user(body: UserCreateByAdmin, admin: UserPublic = Depends(require_
     if seat_count >= limits["max_users"]:
         raise HTTPException(
             status_code=402,
-            detail=f"Your {limits['label']} plan is limited to {limits['max_users']} users. Upgrade to add more.",
+            detail=f"Your {limits['label']} plan has room for {limits['max_users']} people. Choose a bigger plan to add more.",
         )
 
     user = User(
@@ -71,7 +71,7 @@ async def update_role(user_id: str, body: UserRoleUpdate, admin: UserPublic = De
     if target["role"] == "admin" and body.role != "admin":
         remaining_admins = await db.users.count_documents({"org_id": admin.org_id, "role": "admin"})
         if remaining_admins <= 1:
-            raise HTTPException(status_code=400, detail="Cannot demote the last remaining admin")
+            raise HTTPException(status_code=400, detail="Someone has to stay an admin — make another person admin first.")
 
     await db.users.update_one({"user_id": user_id}, {"$set": {"role": body.role}})
     updated = await db.users.find_one({"user_id": user_id})
@@ -86,12 +86,12 @@ async def remove_user(user_id: str, admin: UserPublic = Depends(require_admin)):
         raise HTTPException(status_code=404, detail="User not found")
 
     if user_id == admin.user_id:
-        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+        raise HTTPException(status_code=400, detail="You can't remove yourself from the team.")
 
     if target["role"] == "admin":
         remaining_admins = await db.users.count_documents({"org_id": admin.org_id, "role": "admin"})
         if remaining_admins <= 1:
-            raise HTTPException(status_code=400, detail="Cannot delete the last remaining admin")
+            raise HTTPException(status_code=400, detail="Someone has to stay an admin — make another person admin first.")
 
     await db.users.delete_one({"user_id": user_id})
     return {"status": "deleted"}

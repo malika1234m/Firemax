@@ -57,7 +57,7 @@ async def signup(body: SignupRequest, response: Response):
     email = body.email.strip().lower()
 
     if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
+        raise HTTPException(status_code=409, detail="There is already an account with this email — try signing in instead.")
 
     org = Organization(
         name=body.org_name.strip(),
@@ -90,7 +90,7 @@ async def login(body: LoginRequest, response: Response):
     # the timing is indistinguishable whether or not the email exists.
     password_ok = verify_password(body.password, user["password_hash"] if user else _DUMMY_HASH)
     if not user or not password_ok:
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
+        raise HTTPException(status_code=401, detail="That email and password don't match. Try again, or reset your password.")
 
     _set_session_cookie(response, user["user_id"], user.get("token_version", 0))
     return UserPublic(**user)
@@ -112,7 +112,7 @@ async def change_password(body: ChangePasswordRequest, response: Response, user:
     db = get_db()
     current = await db.users.find_one({"user_id": user.user_id})
     if not verify_password(body.current_password, current["password_hash"]):
-        raise HTTPException(status_code=401, detail="Current password is incorrect")
+        raise HTTPException(status_code=401, detail="Your current password isn't right — please check it and try again.")
 
     # Bump token_version so every previously-issued session (e.g. a stolen
     # cookie) is invalidated, then re-issue a fresh cookie for THIS session so
@@ -154,7 +154,7 @@ async def reset_password(body: ResetPasswordRequest):
     record = await db.password_reset_tokens.find_one({"token": body.token})
 
     if not record or record["used"] or record["expires_at"] < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+        raise HTTPException(status_code=400, detail="This link has expired or was already used. Ask for a new one and try again.")
 
     # Bump token_version to kill every existing session — a password reset is
     # exactly the "I've been compromised" case where lingering sessions must die.

@@ -1,25 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { apiFetch, apiJson } from '../lib/api'
+import { apiFetch } from '../lib/api'
 import { useAuth } from './AuthContext'
 
 /**
- * The signed-in user's organization, and the deployment mode it has chosen.
+ * The signed-in user's organization: its plan and how far first-time setup
+ * got.
  *
- * `deployment_mode` decides which setup guide a customer sees. The two paths —
- * the Home Assistant add-on and the standalone edge agent — share the detection
- * model and almost nothing else, so showing the wrong one wastes the customer's
- * time on steps that do not apply to them.
- *
- * It is read from the server rather than kept in local storage: the choice is
- * a property of the organization, so a second admin signing in on another
- * machine must see the same guide as the first.
- *
- * This is a context and not a plain hook because several components read the
- * mode at once — the route guard, the sidebar and the settings page. With
- * per-component state, answering the questionnaire updated only the copy owned
- * by the page you answered on; the route guard's copy still said "unanswered"
- * and bounced you straight back to the question, forever. One shared copy means
- * one update reaches every reader.
+ * A context and not a plain hook because several components read it at once —
+ * the route guard, the sidebar and the setup pages. With per-component state,
+ * saving a setup step updated only the copy owned by the page it was saved
+ * on, and the route guard kept sending the admin back to a step already done.
+ * One shared copy means one update reaches every reader.
  */
 export const DEPLOYMENT_MODES = {
   HOME_ASSISTANT: 'home_assistant',
@@ -55,24 +46,15 @@ export function OrganizationProvider({ children }) {
 
   useEffect(() => { load() }, [load])
 
-  const chooseMode = useCallback(async (mode) => {
-    const updated = await apiJson('/organizations/me/deployment-mode', {
-      method: 'PUT',
-      body: JSON.stringify({ deployment_mode: mode }),
-    })
-    setOrg(updated)
-    return updated
-  }, [])
-
   const value = {
     org,
     loading,
     mode: org?.deployment_mode ?? DEPLOYMENT_MODES.UNSET,
-    // A brand-new organization has not answered the questionnaire yet.
-    needsSetupChoice: !loading && org?.deployment_mode === DEPLOYMENT_MODES.UNSET,
-    isHomeAssistant: org?.deployment_mode === DEPLOYMENT_MODES.HOME_ASSISTANT,
-    isEdge: org?.deployment_mode === DEPLOYMENT_MODES.EDGE,
-    chooseMode,
+    // A brand-new account that has never opened first-time setup. Accounts
+    // from before the setup existed already chose how they run, so they are
+    // not sent through it again.
+    needsOnboarding: !loading && Boolean(org) && !org.onboarding_completed
+      && !org.onboarding_step && org.deployment_mode === DEPLOYMENT_MODES.UNSET,
     refresh: load,
     setOrg,
   }

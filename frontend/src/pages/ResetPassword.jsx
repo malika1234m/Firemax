@@ -34,7 +34,7 @@ export default function ResetPassword() {
 
   if (!token) {
     return (
-      <AuthLayout heading="Invalid Link">
+      <AuthLayout heading="This link has expired">
         <div className="flex flex-col items-center text-center gap-3 py-2">
           <div className="w-12 h-12 rounded-full bg-hazard/10 border border-hazard/20 flex items-center justify-center">
             <AlertTriangle size={20} className="text-hazard" />
@@ -50,7 +50,7 @@ export default function ResetPassword() {
 
   if (done) {
     return (
-      <AuthLayout heading="Password Reset">
+      <AuthLayout heading="All done — password changed">
         <div className="flex flex-col items-center text-center gap-3 py-2">
           <div className="w-12 h-12 rounded-full bg-safe/10 border border-safe/30 flex items-center justify-center">
             <CheckCircle2 size={20} className="text-safe" />
@@ -62,7 +62,7 @@ export default function ResetPassword() {
   }
 
   return (
-    <AuthLayout heading="Set a New Password" subheading="Choose a new password for your account.">
+    <AuthLayout heading="Choose a new password" subheading="Pick something you haven't used before.">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="flex items-center gap-2 text-xs text-hazard bg-hazard/10 border border-hazard/20 rounded-lg px-3 py-2.5">
@@ -71,7 +71,7 @@ export default function ResetPassword() {
         )}
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">New Password</span>
+          <span className="text-[12px] text-slate-400 font-medium">New password</span>
           <div className="relative">
             <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input type={showPassword ? 'text' : 'password'} required autoFocus className="field !pl-10"
@@ -94,7 +94,7 @@ export default function ResetPassword() {
 
         <button type="submit" disabled={loading}
                 className="w-full bg-ember text-white text-sm font-semibold py-3 rounded-lg hover:bg-ember-dark disabled:opacity-40 transition-colors mt-2">
-          {loading ? 'Saving…' : 'Reset Password'}
+          {loading ? 'Saving…' : 'Save new password'}
         </button>
       </form>
     </AuthLayout>

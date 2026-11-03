@@ -22,7 +22,10 @@ export default function AuthLayout({ heading, subheading, children, footer }) {
           <span className="text-ember">FIRE</span><span className="text-white">meX</span>
         </h1>
         <p className="text-slate-200 text-[16px] lg:text-[18px] mt-4 font-light">
-          Secure Monitoring &amp; Instant Alerts
+          Fire detection that lives in your Home Assistant.
+        </p>
+        <p className="text-slate-400 text-[14px] mt-3 leading-relaxed">
+          Your cameras and video stay at home. This is where you look after your account.
         </p>
       </div>
 

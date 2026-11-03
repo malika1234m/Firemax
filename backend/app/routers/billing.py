@@ -1,8 +1,9 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app import account_events
 from app.config import settings
 from app.database import get_db
 from app.models import UserPublic, OrganizationPublic, PLAN_LIMITS
@@ -63,6 +64,7 @@ async def public_plans():
             {
                 "plan_id": p["plan_id"], "label": p["label"], "price_usd": p["price_usd"],
                 "max_cameras": p["max_cameras"], "max_users": p["max_users"],
+                "max_installs": PLAN_LIMITS.get(p["plan_id"], {}).get("max_installs", 1),
                 "features": p.get("features", []), "order": p.get("order", 0),
             }
             for p in plans
@@ -84,9 +86,17 @@ async def billing_status(user: UserPublic = Depends(get_current_user)):
 
     return {
         "org": OrganizationPublic(**org),
-        "usage": {"cameras": camera_count, "users": user_count},
-        "limits": {"max_cameras": current["max_cameras"], "max_users": current["max_users"], "label": current["label"]},
+        "usage": {"cameras": camera_count, "users": user_count,
+                  "installs": await db.licence_activations.count_documents(
+                      {"org_id": user.org_id, "removed": {"$ne": True}})},
+        "billing_interval": "month",
+        "limits": {"max_cameras": current["max_cameras"], "max_users": current["max_users"],
+                   "max_installs": PLAN_LIMITS.get(org["plan"], {}).get("max_installs", 1),
+                   "label": current["label"]},
         "stripe_configured": stripe_configured(),
+        # Payment method, plan changes and cancelling all happen in Stripe's
+        # billing portal, which exists once the customer has paid once.
+        "has_billing_account": bool(org.get("stripe_customer_id")),
         # Every plan in the catalog, including the free trial. This used to be
         # filtered to purchasable plans (PLAN_PRICING), which left the pricing
         # page with no data for the trial card — it fell back to the CURRENT
@@ -96,6 +106,7 @@ async def billing_status(user: UserPublic = Depends(get_current_user)):
         "plans": {
             p["plan_id"]: {
                 "max_cameras": p["max_cameras"], "max_users": p["max_users"],
+                "max_installs": PLAN_LIMITS.get(p["plan_id"], {}).get("max_installs", 1),
                 "label": p["label"], "amount_usd": p["price_usd"],
                 "features": p.get("features", []),
                 "purchasable": p["plan_id"] in PLAN_PRICING,
@@ -105,18 +116,48 @@ async def billing_status(user: UserPublic = Depends(get_current_user)):
     }
 
 
+@router.get("/invoices")
+async def list_invoices(admin: UserPublic = Depends(require_admin)):
+    """Past invoices from Stripe. Empty, not an error, before the first payment
+    or while card payment is not set up — there is simply nothing to list."""
+    db = get_db()
+    org = await db.organizations.find_one({"org_id": admin.org_id})
+    if not stripe_configured() or not org.get("stripe_customer_id"):
+        return {"invoices": []}
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        result = stripe.Invoice.list(customer=org["stripe_customer_id"], limit=24)
+    except Exception:
+        logger.exception("[stripe] could not list invoices for org %s", admin.org_id)
+        raise HTTPException(status_code=502, detail="Could not load invoices from the payment provider")
+    return {"invoices": [
+        {
+            "id": inv.get("id"), "number": inv.get("number"),
+            "created": datetime.fromtimestamp(inv["created"], tz=timezone.utc).isoformat(),
+            "amount_usd": (inv.get("amount_paid") or inv.get("amount_due") or 0) / 100,
+            "currency": (inv.get("currency") or "usd").upper(),
+            "status": inv.get("status"),
+            "url": inv.get("hosted_invoice_url"), "pdf": inv.get("invoice_pdf"),
+        }
+        for inv in result.get("data", [])
+    ]}
+
+
 @router.post("/checkout-session")
 async def create_checkout_session(body: dict, admin: UserPublic = Depends(require_admin)):
     if not stripe_configured():
-        raise HTTPException(status_code=503, detail="Billing is not configured yet — set STRIPE_SECRET_KEY in backend/.env")
+        raise HTTPException(status_code=503, detail="Card payments aren't switched on yet — please contact us to change your plan.")
 
     plan = body.get("plan")
     if plan not in PLAN_PRICING:
         raise HTTPException(status_code=400, detail=f"plan must be one of {list(PLAN_PRICING)}")
 
+    # Choosing a plan during first-time setup returns to setup, not to billing.
+    back = "/welcome" if body.get("return_to") == "welcome" else "/billing"
+
     price_id = _price_ids.get(plan)
     if not price_id:
-        raise HTTPException(status_code=503, detail="Stripe price isn't ready yet — try again in a moment")
+        raise HTTPException(status_code=503, detail="Checkout isn't ready yet — please try again in a moment.")
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     db = get_db()
@@ -132,8 +173,8 @@ async def create_checkout_session(body: dict, admin: UserPublic = Depends(requir
         customer=customer_id,
         mode="subscription",
         line_items=[{"price": price_id, "quantity": 1}],
-        success_url=f"{settings.FRONTEND_URL}/billing?checkout=success",
-        cancel_url=f"{settings.FRONTEND_URL}/billing?checkout=cancelled",
+        success_url=f"{settings.FRONTEND_URL}{back}?checkout=success",
+        cancel_url=f"{settings.FRONTEND_URL}{back}?checkout=cancelled",
         metadata={"org_id": admin.org_id, "plan": plan},
     )
     return {"url": session.url}
@@ -147,7 +188,7 @@ async def create_portal_session(admin: UserPublic = Depends(require_admin)):
     db = get_db()
     org = await db.organizations.find_one({"org_id": admin.org_id})
     if not org.get("stripe_customer_id"):
-        raise HTTPException(status_code=400, detail="No billing account yet — subscribe to a plan first")
+        raise HTTPException(status_code=400, detail="There's no payment set up yet — choose a paid plan first.")
 
     stripe.api_key = settings.STRIPE_SECRET_KEY
     session = stripe.billing_portal.Session.create(
@@ -190,6 +231,9 @@ async def stripe_webhook(request: Request):
                 }},
             )
             logger.info(f"[stripe] org {org_id} subscribed to {plan}")
+            label = PLAN_LIMITS.get(plan, {}).get("label", plan)
+            await account_events.record(db, org_id, "subscription_changed",
+                                        f"Subscribed to the {label} plan")
 
     elif event["type"] in ("customer.subscription.updated", "customer.subscription.deleted"):
         customer_id = data.get("customer")
@@ -200,7 +244,18 @@ async def stripe_webhook(request: Request):
         current_period_end = data.get("current_period_end")
         if current_period_end:
             update["current_period_end"] = datetime.utcfromtimestamp(current_period_end)
-        await db.organizations.update_one({"stripe_customer_id": customer_id}, {"$set": update})
+        org = await db.organizations.find_one_and_update(
+            {"stripe_customer_id": customer_id}, {"$set": update})
         logger.info(f"[stripe] subscription update for customer {customer_id}: {status}")
+        if org and org.get("subscription_status") != status:
+            await account_events.record(db, org["org_id"], "subscription_changed",
+                                        f"Subscription is now {status}")
+
+    elif event["type"] == "invoice.paid":
+        org = await db.organizations.find_one({"stripe_customer_id": data.get("customer")})
+        if org:
+            amount = (data.get("amount_paid") or 0) / 100
+            await account_events.record(db, org["org_id"], "payment_completed",
+                                        f"Payment of ${amount:.2f} received")
 
     return {"status": "ok"}

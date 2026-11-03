@@ -26,7 +26,7 @@ export default function ForgotPassword() {
 
   if (sent) {
     return (
-      <AuthLayout heading="Check Your Email">
+      <AuthLayout heading="Check your email">
         <div className="flex flex-col items-center text-center gap-3 py-2">
           <div className="w-12 h-12 rounded-full bg-ember/10 border border-ember/20 flex items-center justify-center">
             <MailCheck size={20} className="text-ember" />
@@ -36,7 +36,7 @@ export default function ForgotPassword() {
             reset link is on its way. It expires in 1 hour.
           </p>
           <Link to="/login" className="text-[13px] text-ember font-semibold hover:text-ember/80 mt-2">
-            Back to Sign In
+            Back to sign in
           </Link>
         </div>
       </AuthLayout>
@@ -45,9 +45,9 @@ export default function ForgotPassword() {
 
   return (
     <AuthLayout
-      heading="Forgot Password?"
-      subheading="Enter your email and we'll send you a reset link."
-      footer={<>Remembered it? <Link to="/login" className="text-ember font-semibold hover:text-ember/80">Sign In</Link></>}
+      heading="Forgot your password?"
+      subheading="It happens. Enter your email and we'll send you a link to choose a new one."
+      footer={<>Remembered it? <Link to="/login" className="text-ember font-semibold hover:text-ember/80">Sign in</Link></>}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
@@ -57,7 +57,7 @@ export default function ForgotPassword() {
         )}
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Email Address</span>
+          <span className="text-[12px] text-slate-400 font-medium">Email</span>
           <div className="relative">
             <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input type="email" required autoFocus className="field !pl-10"
@@ -67,7 +67,7 @@ export default function ForgotPassword() {
 
         <button type="submit" disabled={loading}
                 className="w-full bg-ember text-white text-sm font-semibold py-3 rounded-lg hover:bg-ember-dark disabled:opacity-40 transition-colors mt-2">
-          {loading ? 'Sending…' : 'Send Reset Link'}
+          {loading ? 'Sending…' : 'Send me a link'}
         </button>
       </form>
     </AuthLayout>

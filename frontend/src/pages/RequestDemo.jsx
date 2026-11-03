@@ -39,7 +39,7 @@ export default function RequestDemo() {
 
   if (sent) {
     return (
-      <AuthLayout heading="Request Received">
+      <AuthLayout heading="Thank you — we'll be in touch">
         <div className="flex flex-col items-center text-center gap-3 py-2">
           <div className="w-12 h-12 rounded-full bg-safe/10 border border-safe/30 flex items-center justify-center">
             <CheckCircle2 size={20} className="text-safe" />
@@ -49,7 +49,7 @@ export default function RequestDemo() {
             <span className="text-slate-200 font-medium">{form.email}</span> shortly to set up your demo.
           </p>
           <Link to="/" className="text-[13px] text-ember font-semibold hover:text-ember/80 mt-2">
-            Back to Home
+            Back to the home page
           </Link>
         </div>
       </AuthLayout>
@@ -58,8 +58,8 @@ export default function RequestDemo() {
 
   return (
     <AuthLayout
-      heading="Request a Demo"
-      subheading="Tell us about your team and we'll walk you through FiremeX."
+      heading="Talk to us"
+      subheading="Tell us a little about your place and we'll show you FiremeX on a call."
       footer={<>Rather explore it yourself? <Link to="/signup" className="text-ember font-semibold hover:text-ember/80">Start a free trial</Link></>}
     >
       <form onSubmit={handleSubmit} className="space-y-3.5">
@@ -70,7 +70,7 @@ export default function RequestDemo() {
         )}
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Full Name</span>
+          <span className="text-[12px] text-slate-400 font-medium">Your name</span>
           <div className="relative">
             <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input required autoFocus className="field !pl-10" placeholder="Jordan Soto" {...field('name')} />
@@ -78,7 +78,7 @@ export default function RequestDemo() {
         </label>
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Work Email</span>
+          <span className="text-[12px] text-slate-400 font-medium">Work email</span>
           <div className="relative">
             <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input type="email" required className="field !pl-10" placeholder="you@company.com" {...field('email')} />
@@ -102,17 +102,17 @@ export default function RequestDemo() {
         </label>
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">What are you looking to monitor? <span className="text-slate-600">(optional)</span></span>
+          <span className="text-[12px] text-slate-400 font-medium">What would you like FiremeX to look after? <span className="text-slate-600">(optional)</span></span>
           <div className="relative">
             <MessageSquare size={15} className="absolute left-3 top-3 text-slate-500 pointer-events-none" />
-            <textarea rows={3} className="field !pl-10 resize-none" placeholder="e.g. a 3-building warehouse campus"
+            <textarea rows={3} className="field !pl-10 resize-none" placeholder="e.g. a small warehouse with six cameras"
                       {...field('message')} />
           </div>
         </label>
 
         <button type="submit" disabled={loading}
                 className="w-full bg-ember text-white text-sm font-semibold py-3 rounded-lg hover:bg-ember-dark disabled:opacity-40 transition-colors mt-1">
-          {loading ? 'Sending…' : 'Request Demo'}
+          {loading ? 'Sending…' : 'Send'}
         </button>
       </form>
     </AuthLayout>

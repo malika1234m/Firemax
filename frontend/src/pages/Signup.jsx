@@ -17,29 +17,26 @@ export default function Signup() {
   const [loading,  setLoading]  = useState(false)
   const [justSignedUp, setJustSignedUp] = useState(false)
 
-  // A brand-new workspace has no cameras, no site and no agent, so the
-  // Dashboard is empty and gives no hint what to do next. Send people who just
-  // registered to the setup question instead — which guide is right for them
-  // depends on whether they run Home Assistant, and guessing wrong costs them
-  // a page of steps that do not apply. Anyone merely revisiting /signup while
-  // already logged in still goes where they were headed.
+  // Someone who has just registered goes straight into first-time setup —
+  // plan, token, Home Assistant. Anyone merely revisiting /signup while
+  // already signed in still goes where they were headed.
   if (user) {
-    const dest = justSignedUp ? '/choose-setup' : (location.state?.from ?? '/')
+    const dest = justSignedUp ? '/welcome' : (location.state?.from ?? '/')
     return <Navigate to={dest} replace />
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-    if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
-    if (password !== confirm) { setError('Passwords do not match.'); return }
+    if (password.length < 8) { setError('Please use at least 8 characters for your password.'); return }
+    if (password !== confirm) { setError("Those two passwords don't match — try typing them again."); return }
     setLoading(true)
     try {
       setJustSignedUp(true)
       await signup(orgName, name, email, password)
     } catch (err) {
       setJustSignedUp(false)
-      setError(err.message || 'Signup failed')
+      setError(err.message || "We couldn't create your account just now. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -47,9 +44,9 @@ export default function Signup() {
 
   return (
     <AuthLayout
-      heading="Create Your Account"
-      subheading="Starts a private 14-day trial workspace for your company."
-      footer={<>Already have an account? <Link to="/login" className="text-ember font-semibold hover:text-ember/80">Sign In</Link></>}
+      heading="Create your account"
+      subheading="Free for 14 days, no card needed. It takes about a minute."
+      footer={<>Already have an account? <Link to="/login" className="text-ember font-semibold hover:text-ember/80">Sign in</Link></>}
     >
       <form onSubmit={handleSubmit} className="space-y-3.5">
         {error && (
@@ -59,7 +56,7 @@ export default function Signup() {
         )}
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Company Name</span>
+          <span className="text-[12px] text-slate-400 font-medium">Company name</span>
           <div className="relative">
             <Building2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input required autoFocus className="field !pl-10"
@@ -68,7 +65,7 @@ export default function Signup() {
         </label>
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Full Name</span>
+          <span className="text-[12px] text-slate-400 font-medium">Your name</span>
           <div className="relative">
             <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input required className="field !pl-10"
@@ -77,11 +74,11 @@ export default function Signup() {
         </label>
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Email Address</span>
+          <span className="text-[12px] text-slate-400 font-medium">Email</span>
           <div className="relative">
             <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input type="email" required className="field !pl-10"
-                   placeholder="user@example.com" value={email} onChange={e => setEmail(e.target.value)} />
+                   placeholder="you@company.com" value={email} onChange={e => setEmail(e.target.value)} />
           </div>
         </label>
 
@@ -99,7 +96,7 @@ export default function Signup() {
         </label>
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Confirm Password</span>
+          <span className="text-[12px] text-slate-400 font-medium">Confirm password</span>
           <div className="relative">
             <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input type={showPassword ? 'text' : 'password'} required className="field !pl-10"
@@ -109,7 +106,7 @@ export default function Signup() {
 
         <button type="submit" disabled={loading}
                 className="w-full bg-ember text-white text-sm font-semibold py-3 rounded-lg hover:bg-ember-dark disabled:opacity-40 transition-colors mt-1">
-          {loading ? 'Creating Account…' : 'Create Account'}
+          {loading ? 'Setting up your account…' : 'Create my account'}
         </button>
       </form>
     </AuthLayout>

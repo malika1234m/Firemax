@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, UserPlus, X, Users as UsersIcon, ShieldCheck, Eye } from 'lucide-react'
-import { apiFetch, apiJson } from '../lib/api'
-import { useAuth } from '../context/AuthContext'
-import { useToast } from '../context/ToastContext'
-import { useConfirm } from '../context/ConfirmContext'
-import PageHeader from '../components/PageHeader'
+import { apiFetch, apiJson } from '../../lib/api'
+import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../context/ToastContext'
+import { useConfirm } from '../../context/ConfirmContext'
+import { roleLabel } from '../../lib/format'
 
 const EMPTY_FORM = { name: '', email: '', password: '', role: 'operator' }
 const ROLES = ['operator', 'admin']
 
-export default function Users() {
+export default function TeamSettings() {
   const { user: me } = useAuth()
   const { toast } = useToast()
   const confirm = useConfirm()
@@ -36,7 +36,7 @@ export default function Users() {
       await apiJson('/users/', { method: 'POST', body: JSON.stringify(form) })
       setForm(EMPTY_FORM)
       setShowForm(false)
-      toast({ type: 'success', message: `${form.name} was added as ${form.role}.` })
+      toast({ type: 'success', message: `${form.name} is on the team as ${roleLabel(form.role).toLowerCase()}.` })
       load()
     } catch (err) {
       setError(err.message || 'Failed to add user')
@@ -53,17 +53,17 @@ export default function Users() {
       toast({ type: 'success', message: `${u.name} was removed.` })
       load()
     } catch (err) {
-      toast({ type: 'error', message: err.message || 'Failed to delete user' })
+      toast({ type: 'error', message: err.message || `Couldn't remove ${u.name} — please try again.` })
     }
   }
 
   const handleRoleChange = async (u, role) => {
     try {
       await apiJson(`/users/${u.user_id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
-      toast({ type: 'success', message: `${u.name} is now ${role}.` })
+      toast({ type: 'success', message: `${u.name} is now ${roleLabel(role).toLowerCase()}.` })
       load()
     } catch (err) {
-      toast({ type: 'error', message: err.message || 'Failed to change role' })
+      toast({ type: 'error', message: err.message || "Couldn't change their role — please try again." })
       load()
     }
   }
@@ -72,30 +72,31 @@ export default function Users() {
   const operatorCount = users.filter(u => u.role === 'operator').length
 
   return (
-    <div className="max-w-6xl space-y-6 fade-up">
-      <PageHeader title="Users" subtitle={`${users.length} team member${users.length !== 1 ? 's' : ''}`}>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[13px] text-slate-400">{users.length} team member{users.length !== 1 ? 's' : ''}</p>
         <button onClick={() => { setShowForm(v => !v); setError('') }}
                 className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg bg-brand text-void hover:bg-brand/85 transition-colors">
-          {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> Add User</>}
+          {showForm ? <><X size={14} /> Cancel</> : <><Plus size={14} /> Add someone</>}
         </button>
-      </PageHeader>
+      </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Total Members" value={users.length} icon={UsersIcon} />
+        <StatCard label="People" value={users.length} icon={UsersIcon} />
         <StatCard label="Admins" value={adminCount} icon={ShieldCheck} />
-        <StatCard label="Operators" value={operatorCount} icon={Eye} />
+        <StatCard label="Members" value={operatorCount} icon={Eye} />
       </div>
 
       <p className="text-[11px] text-slate-600">
-        <span className="text-slate-400 font-medium">Admins</span> manage users, cameras, billing, and system settings.{' '}
-        <span className="text-slate-400 font-medium">Operators</span> monitor live feeds, review incidents, and acknowledge alerts.
+        <span className="text-slate-400 font-medium">Admins</span> manage the subscription, access tokens and the Home Assistant connection.{' '}
+        <span className="text-slate-400 font-medium">Members</span> can sign in to see how the account is doing and contact support.
       </p>
 
       {showForm && (
         <form onSubmit={handleAdd} className="glass-card border border-white/[0.09] rounded-xl p-5 space-y-4">
           <div className="flex items-center gap-2">
             <UserPlus size={14} className="text-brand" />
-            <span className="font-raj font-semibold text-[12px] tracking-[0.1em] text-slate-400 uppercase">New Team Member</span>
+            <span className="text-[14px] font-semibold text-slate-100">Add someone to your team</span>
           </div>
           {error && <p className="text-xs text-hazard bg-hazard/10 border border-hazard/20 rounded-lg px-3 py-2.5">{error}</p>}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -108,26 +109,26 @@ export default function Users() {
               <input className="field" type="email" placeholder="jordan@firemex.io" {...field('email')} />
             </label>
             <label className="space-y-1.5">
-              <span className="text-[11px] text-slate-500 font-medium">Temporary Password</span>
+              <span className="text-[11px] text-slate-500 font-medium">Temporary password</span>
               <input className="field" type="password" placeholder="At least 8 characters" {...field('password')} />
             </label>
             <label className="space-y-1.5">
               <span className="text-[11px] text-slate-500 font-medium">Role</span>
-              <select className="field select-field appearance-none capitalize" {...field('role')}>
-                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              <select className="field select-field appearance-none" {...field('role')}>
+                {ROLES.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
             </label>
           </div>
-          <p className="text-[10px] text-slate-700">Share the password with them directly — they can change it later in Settings.</p>
+          <p className="text-[10px] text-slate-700">Give them this password yourself — they can change it after signing in, under Account Settings → Security.</p>
           <button type="submit" disabled={loading}
                   className="bg-brand text-void text-sm font-medium px-5 py-2 rounded-lg hover:bg-brand/85 disabled:opacity-40 transition-colors">
-            {loading ? 'Saving…' : 'Save User'}
+            {loading ? 'Adding…' : 'Add to team'}
           </button>
         </form>
       )}
 
       {users.length === 0 ? (
-        <p className="text-slate-700 text-sm">No users added yet.</p>
+        <p className="text-slate-700 text-sm">Just you so far. Add the people who should be able to sign in.</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {users.map(u => (
@@ -148,8 +149,8 @@ export default function Users() {
               <div className="flex items-center gap-2 pt-2 border-t border-white/[0.05]">
                 <select value={u.role} onChange={e => handleRoleChange(u, e.target.value)}
                         disabled={u.user_id === me?.user_id}
-                        className="select-field-sm text-[10px] font-medium text-slate-400 bg-white/[0.04] border border-white/[0.07] rounded-md px-2 py-1 capitalize appearance-none disabled:opacity-50">
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                        className="select-field-sm text-[10px] font-medium text-slate-400 bg-white/[0.04] border border-white/[0.07] rounded-md px-2 py-1 appearance-none disabled:opacity-50">
+                  {ROLES.map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
                 </select>
                 <button onClick={() => handleDelete(u)} disabled={u.user_id === me?.user_id}
                         className="ml-auto text-slate-700 hover:text-hazard transition-colors disabled:opacity-30 disabled:hover:text-slate-700">

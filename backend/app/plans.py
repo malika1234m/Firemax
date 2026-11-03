@@ -15,26 +15,35 @@ DEFAULT_PLANS = {
         "plan_id": "trial", "label": "Trial", "price_usd": 0, "order": 0,
         "max_cameras": PLAN_LIMITS["trial"]["max_cameras"],
         "max_users": PLAN_LIMITS["trial"]["max_users"],
-        "features": ["Full detection pipeline", "Live feed & incident review", "Email alerts"],
+        "features": ["Every camera in one Home Assistant", "Fire, smoke and small-flame detection", "Runs fully local, works offline"],
         "stripe_lookup_key": None,
     },
     "starter": {
         "plan_id": "starter", "label": "Starter", "price_usd": 49, "order": 1,
         "max_cameras": PLAN_LIMITS["starter"]["max_cameras"],
         "max_users": PLAN_LIMITS["starter"]["max_users"],
-        "features": ["Everything in Trial", "SMS + call to authorities", "Shift scheduling"],
+        "features": ["Everything in Trial", "1 Home Assistant installation", "Email support"],
         "stripe_lookup_key": "firemex_starter_monthly",
     },
     "pro": {
         "plan_id": "pro", "label": "Pro", "price_usd": 199, "order": 2,
         "max_cameras": PLAN_LIMITS["pro"]["max_cameras"],
         "max_users": PLAN_LIMITS["pro"]["max_users"],
-        "features": ["Everything in Starter", "Priority detection processing", "Dedicated support"],
+        "features": ["Everything in Starter", "Up to 5 Home Assistant installations", "Priority support"],
         "stripe_lookup_key": "firemex_pro_monthly",
     },
 }
 
 EDITABLE_FIELDS = {"label", "price_usd", "max_cameras", "max_users", "features"}
+
+# Feature lists earlier releases seeded, which described the old cloud camera
+# dashboard. A plan still carrying exactly one of these was never edited by
+# staff, so it is moved to the current wording; an edited list is left alone.
+OLD_DEFAULT_FEATURES = {
+    "trial": ["Full detection pipeline", "Live feed & incident review", "Email alerts"],
+    "starter": ["Everything in Trial", "SMS + call to authorities", "Shift scheduling"],
+    "pro": ["Everything in Starter", "Priority detection processing", "Dedicated support"],
+}
 
 
 async def seed_plans():
@@ -42,6 +51,9 @@ async def seed_plans():
     db = get_db()
     for plan_id, doc in DEFAULT_PLANS.items():
         await db.plans.update_one({"plan_id": plan_id}, {"$setOnInsert": doc}, upsert=True)
+        await db.plans.update_one(
+            {"plan_id": plan_id, "features": OLD_DEFAULT_FEATURES[plan_id]},
+            {"$set": {"features": doc["features"]}})
 
 
 async def list_plans() -> list[dict]:

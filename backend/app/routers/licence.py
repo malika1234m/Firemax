@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pymongo.errors import DuplicateKeyError
 
+from app import account_events
 from app.database import get_db
 from app.licence_signing import ENTITLEMENT_SECONDS, sign_entitlement
 from app.models import (FREE_TIER_MAX_CAMERAS, PLAN_LIMITS, LicenceActivationPublic,
@@ -68,7 +69,20 @@ async def _ensure_key(db, org: dict) -> str:
     key = _new_key()
     await db.organizations.update_one({"org_id": org["org_id"]},
                                       {"$set": {"licence_key": key}})
+    await account_events.record(db, org["org_id"], "token_generated", "Access token created")
     return key
+
+
+def _key_public(key: str, org: dict) -> LicenceKeyPublic:
+    plan = org.get("plan", "trial")
+    entitled = org.get("subscription_status") in ENTITLED_STATUSES
+    return LicenceKeyPublic(
+        licence_key=key,
+        plan=plan,
+        max_cameras=None if entitled else FREE_TIER_MAX_CAMERAS,
+        entitled=entitled,
+        max_installs=PLAN_LIMITS.get(plan, {}).get("max_installs", 1),
+    )
 
 
 @router.post("/validate", response_model=LicencePublic)
@@ -187,7 +201,7 @@ async def validate_licence(body: LicenceCheck,
         return LicencePublic(
             valid=False, plan="free", organization=org.get("name"),
             reason=(f"This licence is already active on {ahead} installation(s), the "
-                    f"limit for the {plan} plan. Remove one under Settings > Add-on Licence Key."))
+                    f"limit for the {plan} plan. Remove one under Home Assistant Connection on the FiremeX website."))
 
     if not created:
         await db.licence_activations.update_one(
@@ -205,6 +219,11 @@ async def validate_licence(body: LicenceCheck,
             {"_id": activation["_id"]},
             {"$set": {"removed": True, "removed_by": "rotation", "removed_at": now}})
         return LicencePublic(valid=False, reason="Licence key not recognised")
+
+    if created:
+        await account_events.record(
+            db, org["org_id"], "ha_connected",
+            f"Home Assistant connected (add-on {body.addon_version or 'unknown version'})")
 
     # Paid tiers are unlimited; the number rather than the plan name is what the
     # add-on enforces, so plan definitions can change without a new image.
@@ -233,6 +252,8 @@ async def remove_activation(install_id: str, admin: UserPublic = Depends(require
         {"$set": {"removed": True, "removed_at": datetime.now(timezone.utc)}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Installation not found")
+    await account_events.record(db, admin.org_id, "ha_removed",
+                                f"{admin.name} removed a Home Assistant installation")
 
 
 @router.get("/me", response_model=LicenceKeyPublic)
@@ -243,13 +264,7 @@ async def my_licence_key(admin: UserPublic = Depends(require_admin)):
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    key = await _ensure_key(db, org)
-    entitled = org.get("subscription_status") in ENTITLED_STATUSES
-    return LicenceKeyPublic(
-        licence_key=key,
-        plan=org.get("plan", "trial"),
-        max_cameras=None if entitled else FREE_TIER_MAX_CAMERAS,
-    )
+    return _key_public(await _ensure_key(db, org), org)
 
 
 @router.post("/me/rotate", response_model=LicenceKeyPublic)
@@ -295,9 +310,8 @@ async def rotate_licence_key(admin: UserPublic = Depends(require_admin)):
     await db.licence_activations.update_many(
         {"org_id": admin.org_id, "removed": {"$ne": True}},
         {"$set": {"removed": True, "removed_by": "rotation", "removed_at": now}})
-    entitled = org.get("subscription_status") in ENTITLED_STATUSES
-    return LicenceKeyPublic(
-        licence_key=key,
-        plan=org.get("plan", "trial"),
-        max_cameras=None if entitled else FREE_TIER_MAX_CAMERAS,
-    )
+    await account_events.record(db, admin.org_id, "token_revoked",
+                                f"{admin.name} revoked the previous access token")
+    await account_events.record(db, admin.org_id, "token_generated",
+                                f"{admin.name} generated a new access token")
+    return _key_public(key, org)

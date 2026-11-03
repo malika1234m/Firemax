@@ -8,7 +8,7 @@ async def test_billing_status_shape_for_fresh_trial_org(client):
     body = res.json()
     assert body["org"]["plan"] == "trial"
     assert body["org"]["subscription_status"] == "trialing"
-    assert body["usage"] == {"cameras": 0, "users": 1}
+    assert body["usage"] == {"cameras": 0, "users": 1, "installs": 0}
     assert body["limits"]["max_cameras"] == 2
     assert "starter" in body["plans"] and "pro" in body["plans"]
 

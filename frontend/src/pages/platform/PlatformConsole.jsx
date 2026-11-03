@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ShieldAlert, Building2, Camera, Activity, Bell, Database, Radio, Cpu,
+  ShieldAlert, Building2, Activity, Database, Radio, Home,
   LogOut, RefreshCw, CheckCircle2, AlertTriangle, DollarSign, CreditCard,
-  LayoutGrid, Users, Package, MessageSquare, Save, Server,
+  LayoutGrid, Users, Package, MessageSquare, Save,
 } from 'lucide-react'
 import { apiFetch, apiJson } from '../../lib/api'
 
@@ -20,7 +20,7 @@ const TABS = [
   { id: 'tenants',    label: 'Tenants',    icon: Building2 },
   { id: 'billing',    label: 'Billing',    icon: DollarSign },
   { id: 'plans',      label: 'Plans',      icon: Package },
-  { id: 'pipelines',  label: 'Pipelines',  icon: Activity },
+  { id: 'installs',   label: 'Installations', icon: Home },
   { id: 'complaints', label: 'Complaints', icon: MessageSquare },
 ]
 
@@ -100,7 +100,7 @@ export default function PlatformConsole() {
         {tab === 'tenants'    && <TenantsSection />}
         {tab === 'billing'    && <BillingSection />}
         {tab === 'plans'      && <PlansSection />}
-        {tab === 'pipelines'  && <PipelinesSection />}
+        {tab === 'installs'   && <InstallationsSection />}
         {tab === 'complaints' && <ComplaintsSection />}
       </main>
     </div>
@@ -124,15 +124,15 @@ function OverviewSection({ overview, onRefresh }) {
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Building2} label="Companies" value={overview.fleet.companies} />
-        <StatCard icon={Server} label="Sites Online" value={`${overview.sites?.online ?? 0}/${overview.sites?.total ?? 0}`} />
-        <StatCard icon={Activity} label="Active Pipelines" value={overview.fleet.active_pipelines} sub={`${overview.fleet.cameras} cameras`} />
-        <StatCard icon={Bell} label="Alerts (24h)" value={overview.alerts.last_24h} sub={`${overview.alerts.unconfirmed} unconfirmed`} />
+        <StatCard icon={Users} label="Users" value={overview.fleet.users} />
+        <StatCard icon={Home} label="HA installations" value={overview.fleet.installations} />
+        <StatCard icon={Activity} label="Checked in (26h)" value={`${overview.fleet.installations_checked_in}/${overview.fleet.installations}`} />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <InfraCard icon={Database} label="Database" ok={infra.database_connected} detail={infra.database_connected ? `ping ${infra.database_ping_ms}ms` : 'disconnected'} />
         <InfraCard icon={Radio} label="Redis" ok={infra.redis_configured} neutral={!infra.redis_configured} detail={infra.redis_configured ? 'configured' : 'in-memory fallback'} />
-        <InfraCard icon={Cpu} label="Detection" neutral detail={`runs at edge · ${overview.detector.process_fps_target} FPS target`} />
-        <InfraCard icon={Activity} label="Live Viewers" neutral detail={`${infra.websocket_viewers} connected`} />
+        <InfraCard icon={Home} label="Add-on versions in use" neutral
+                   detail={Object.entries(overview.addon_versions || {}).map(([v, n]) => `${v} × ${n}`).join(' · ') || 'none yet'} />
       </div>
     </div>
   )
@@ -159,15 +159,17 @@ function TenantsSection() {
         Payment collection isn't live yet, so plans are set here by hand. A change applies immediately
         and is recorded against your account.
       </p>
-      <Table head={['Company', 'Plan', 'Users', 'Cameras', 'Alerts 24h', 'Status']}>
+      <Table head={['Company', 'Plan', 'Users', 'HA installations', 'Last check-in', 'Status']}>
         {data.tenants.map(t => (
           <tr key={t.org_id} className="border-b border-white/[0.04] last:border-0 text-[13px]">
             <td className="px-4 py-3 text-slate-200 font-medium">{t.name}</td>
             <td className="px-4 py-3"><PlanPicker tenant={t} plans={plans} onChanged={load} /></td>
             <td className="px-4 py-3 text-slate-400">{t.users}</td>
-            <td className="px-4 py-3"><span className={t.cameras_online < t.cameras_expected ? 'text-hazard' : 'text-slate-300'}>{t.cameras_online}/{t.cameras_expected}</span> <span className="text-slate-600">online</span></td>
-            <td className="px-4 py-3 text-slate-400">{t.alerts_24h}</td>
-            <td className="px-4 py-3">{t.degraded ? <Badge tone="hazard" icon={AlertTriangle}>Degraded</Badge> : <Badge tone="safe" icon={CheckCircle2}>Healthy</Badge>}</td>
+            <td className="px-4 py-3 text-slate-300">{t.installations}<span className="text-slate-600"> / {t.max_installations}</span></td>
+            <td className="px-4 py-3 text-slate-400">{t.last_check_in ? new Date(t.last_check_in).toLocaleString() : '—'}</td>
+            <td className="px-4 py-3">{t.degraded ? <Badge tone="hazard" icon={AlertTriangle}>Not checking in</Badge>
+              : t.installations ? <Badge tone="safe" icon={CheckCircle2}>Connected</Badge>
+              : <span className="text-[12px] text-slate-500">{t.setup_completed ? 'Set up, not connected' : 'Not set up yet'}</span>}</td>
           </tr>
         ))}
       </Table>
@@ -275,7 +277,7 @@ function PlansSection() {
 function PlanCard({ plan, onSaved }) {
   const [label, setLabel] = useState(plan.label)
   const [price, setPrice] = useState(plan.price_usd)
-  const [cams, setCams]   = useState(plan.max_cameras)
+  const [cams]           = useState(plan.max_cameras)
   const [seats, setSeats] = useState(plan.max_users)
   const [features, setFeatures] = useState((plan.features || []).join('\n'))
   const [saving, setSaving] = useState(false)
@@ -303,9 +305,10 @@ function PlanCard({ plan, onSaved }) {
         {plan.plan_id === 'trial' && <span className="text-[10px] text-slate-600">free</span>}
       </div>
       <Field label="Label"><input className="field" value={label} onChange={e => setLabel(e.target.value)} /></Field>
-      <div className="grid grid-cols-3 gap-2">
+      {/* No camera limit here: a paid add-on watches every camera, so the
+          plan's limits are installations (fixed per plan) and team members. */}
+      <div className="grid grid-cols-2 gap-2">
         <Field label="Price $/mo"><input type="number" className="field" value={price} onChange={e => setPrice(e.target.value)} disabled={plan.plan_id === 'trial'} /></Field>
-        <Field label="Cameras"><input type="number" className="field" value={cams} onChange={e => setCams(e.target.value)} /></Field>
         <Field label="Users"><input type="number" className="field" value={seats} onChange={e => setSeats(e.target.value)} /></Field>
       </div>
       <Field label="Features (one per line)">
@@ -319,33 +322,35 @@ function PlanCard({ plan, onSaved }) {
   )
 }
 
-/* ── Pipelines & models ───────────────────────────────── */
-function PipelinesSection() {
+/* ── Home Assistant installations ─────────────────────── */
+function InstallationsSection() {
   const [data, setData] = useState(null)
-  const load = () => apiFetch('/platform/pipelines').then(r => r.json()).then(setData).catch(() => {})
-  useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id) }, [])
+  const load = () => apiFetch('/platform/installations').then(r => r.json()).then(setData).catch(() => {})
+  useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id) }, [])
   if (!data) return <Loading />
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <InfraCard icon={Cpu} label="Detection Model" neutral detail={`${data.model.model_path} · runs at edge`} />
-        <InfraCard icon={Activity} label="Pipelines Online" neutral detail={`${data.online} / ${data.total}`} />
-        <InfraCard icon={Radio} label="Default Threshold" neutral detail={`${Math.round(data.model.default_confidence_threshold * 100)}% · ${data.model.process_fps_target} FPS`} />
+      <p className="text-[12px] text-slate-500">
+        Every Home Assistant using a customer's access token. Each add-on checks in when it starts and once
+        a day — the ones at the top have gone quiet and are worth a call.
+      </p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <InfraCard icon={Home} label="Installations" neutral detail={`${data.total} in use`} />
+        <InfraCard icon={Activity} label="Checked in (26h)" ok={data.checked_in === data.total} detail={`${data.checked_in} / ${data.total}`} />
       </div>
-      <Table head={['Camera', 'Company', 'Zone', 'FPS', 'Inference', 'Last frame', 'Status']}>
-        {data.pipelines.map(p => (
-          <tr key={p.camera_id} className="border-b border-white/[0.04] last:border-0 text-[13px]">
-            <td className="px-4 py-3 text-slate-200 font-medium">{p.camera_name}</td>
-            <td className="px-4 py-3 text-slate-400">{p.org_name}</td>
-            <td className="px-4 py-3 text-slate-500">{p.zone || '—'}</td>
-            <td className="px-4 py-3 text-slate-300 font-mono">{p.fps}</td>
-            <td className="px-4 py-3 text-slate-300 font-mono">{p.inference_ms}ms</td>
-            <td className="px-4 py-3 text-slate-500 font-mono">{p.last_frame_age_s == null ? '—' : `${p.last_frame_age_s}s ago`}</td>
-            <td className="px-4 py-3">{p.online ? <Badge tone="safe" icon={CheckCircle2}>Online</Badge> : <Badge tone="hazard" icon={AlertTriangle}>Offline</Badge>}</td>
+      <Table head={['Company', 'Installation', 'Add-on', 'Connected', 'Last check-in', 'Status']}>
+        {data.installations.map(i => (
+          <tr key={i.install_id} className="border-b border-white/[0.04] last:border-0 text-[13px]">
+            <td className="px-4 py-3 text-slate-200 font-medium">{i.org_name}</td>
+            <td className="px-4 py-3 text-slate-500 font-mono text-[11.5px]">{i.install_id.slice(0, 12)}…</td>
+            <td className="px-4 py-3 text-slate-300 font-mono">{i.addon_version || '?'}</td>
+            <td className="px-4 py-3 text-slate-400">{new Date(i.first_seen).toLocaleDateString()}</td>
+            <td className="px-4 py-3 text-slate-400">{new Date(i.last_seen).toLocaleString()}</td>
+            <td className="px-4 py-3">{i.checked_in ? <Badge tone="safe" icon={CheckCircle2}>Checking in</Badge> : <Badge tone="hazard" icon={AlertTriangle}>Quiet</Badge>}</td>
           </tr>
         ))}
       </Table>
-      {data.pipelines.length === 0 && <p className="text-slate-600 text-sm text-center py-6">No active pipelines.</p>}
+      {data.installations.length === 0 && <p className="text-slate-600 text-sm text-center py-6">No add-on has checked in yet.</p>}
     </div>
   )
 }

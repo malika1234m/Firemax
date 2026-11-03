@@ -119,6 +119,10 @@ class OrganizationPublic(BaseModel):
     confidence_threshold: float = 0.50
     alert_cooldown_seconds: int = 30
     deployment_mode: str = "unset"
+    # First-time setup on the website. None = never started, so the admin is
+    # taken to it once; a saved step lets them leave and resume later.
+    onboarding_step: Optional[str] = None
+    onboarding_completed: bool = False
 
 
 DEPLOYMENT_MODES = {"home_assistant", "edge"}
@@ -160,8 +164,10 @@ class LicencePublic(BaseModel):
 class LicenceActivationPublic(BaseModel):
     """One installation using the org's licence key, for the owner to review."""
     install_id: str
-    first_seen: datetime
-    last_seen: datetime
+    # UTCDateTime, not datetime: Mongo returns naive UTC, which serialised
+    # without a zone and browsers read as local time ("5 hours ago").
+    first_seen: UTCDateTime
+    last_seen: UTCDateTime
     addon_version: Optional[str] = None
 
 
@@ -171,6 +177,10 @@ class LicenceKeyPublic(BaseModel):
     licence_key: str
     plan: str
     max_cameras: Optional[int] = None
+    # False when the subscription is not active: the key then only gives the
+    # one-camera free tier, which the website shows as the token's status.
+    entitled: bool = True
+    max_installs: int = 1
 
 
 class DeploymentModeUpdate(BaseModel):
@@ -185,6 +195,29 @@ class DeploymentModeUpdate(BaseModel):
         if v not in DEPLOYMENT_MODES:
             raise ValueError(f"deployment_mode must be one of {sorted(DEPLOYMENT_MODES)}")
         return v
+
+
+ONBOARDING_STEPS = ("welcome", "plan", "token", "install", "verify", "done")
+
+
+class OnboardingUpdate(BaseModel):
+    """Where the admin is in first-time setup. `completed` is set once, at the
+    end; the step alone is enough to resume an unfinished setup."""
+    step: str
+    completed: bool = False
+
+    @field_validator("step")
+    @classmethod
+    def known_step(cls, v: str) -> str:
+        if v not in ONBOARDING_STEPS:
+            raise ValueError(f"step must be one of {list(ONBOARDING_STEPS)}")
+        return v
+
+
+class AccountEventPublic(BaseModel):
+    kind: str
+    message: str
+    at: UTCDateTime
 
 
 class OrganizationUpdate(BaseModel):

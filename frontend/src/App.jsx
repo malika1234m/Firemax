@@ -13,26 +13,16 @@ import ResetPassword from './pages/ResetPassword'
 import RequestDemo from './pages/RequestDemo'
 import PlatformLogin from './pages/platform/PlatformLogin'
 import PlatformConsole from './pages/platform/PlatformConsole'
-import Dashboard from './pages/Dashboard'
-import GetStarted from './pages/GetStarted'
-import GetStartedHA from './pages/GetStartedHA'
-import ChooseSetup from './pages/ChooseSetup'
-import LiveFeed from './pages/LiveFeed'
-import Incidents from './pages/Incidents'
-import Alerts from './pages/Alerts'
-import HomeDevices from './pages/HomeDevices'
-import UsersPage from './pages/Users'
-import Cameras from './pages/Cameras'
-import Shifts from './pages/Shifts'
+import Overview from './pages/Overview'
+import Onboarding from './pages/Onboarding'
+import HomeAssistant from './pages/HomeAssistant'
+import AccessTokens from './pages/AccessTokens'
 import Billing from './pages/Billing'
 import Support from './pages/Support'
-import Sites from './pages/Sites'
 import SettingsLayout from './pages/settings/SettingsLayout'
-import ProfileSettings from './pages/settings/ProfileSettings'
-import OrganizationSettings from './pages/settings/OrganizationSettings'
-import DetectionSettings from './pages/settings/DetectionSettings'
-import HomeAssistantSettings from './pages/settings/HomeAssistantSettings'
-import ContactsSettings from './pages/settings/ContactsSettings'
+import ProfileSettings, { SecuritySettings } from './pages/settings/ProfileSettings'
+import CompanySettings from './pages/settings/CompanySettings'
+import TeamSettings from './pages/settings/TeamSettings'
 
 function FullScreenLoader() {
   return (
@@ -72,42 +62,50 @@ function AppShell({ children }) {
   )
 }
 
-/* A brand-new organization has not said how it wants to run FiremeX yet, and
- * almost every page assumes one path or the other — the Home Assistant add-on
- * or the standalone edge agent. Ask once, before showing a guide that might not
- * apply. Only admins are asked; an operator invited to an existing org should
- * never be made to answer an infrastructure question. */
-function useSetupRedirect() {
+/* A brand-new account is taken through first-time setup once. Only admins:
+ * an operator invited to an existing account has nothing to set up. Once
+ * setup has been opened it is never forced again — the Overview offers to
+ * resume it — so nobody is trapped in it. */
+function useOnboardingRedirect() {
   const { isAdmin } = useAuth()
-  const { needsSetupChoice, loading } = useOrganization()
-  const location = useLocation()
-  return isAdmin && !loading && needsSetupChoice && location.pathname !== '/choose-setup'
+  const { needsOnboarding, loading } = useOrganization()
+  return isAdmin && !loading && needsOnboarding
 }
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()
   const location = useLocation()
-  const redirectToChoice = useSetupRedirect()
+  const redirectToSetup = useOnboardingRedirect()
 
   if (loading) return <FullScreenLoader />
   if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />
-  if (redirectToChoice) return <Navigate to="/choose-setup" replace />
+  if (redirectToSetup) return <Navigate to="/welcome" replace />
 
   return <AppShell><Outlet /></AppShell>
 }
 
 // The root path is public marketing for signed-out visitors and the
-// Dashboard for signed-in users — everything else under ProtectedLayout
+// Overview for signed-in users — everything else under ProtectedLayout
 // redirects to /login instead.
 function RootRoute() {
   const { user, loading } = useAuth()
-  const redirectToChoice = useSetupRedirect()
+  const redirectToSetup = useOnboardingRedirect()
 
   if (loading) return <FullScreenLoader />
   if (!user) return <Landing />
-  if (redirectToChoice) return <Navigate to="/choose-setup" replace />
+  if (redirectToSetup) return <Navigate to="/welcome" replace />
 
-  return <AppShell><Dashboard /></AppShell>
+  return <AppShell><Overview /></AppShell>
+}
+
+// First-time setup has its own full-screen layout, without the sidebar.
+function OnboardingRoute() {
+  const { user, loading, isAdmin } = useAuth()
+  const { loading: orgLoading } = useOrganization()
+  if (loading || orgLoading) return <FullScreenLoader />
+  if (!user) return <Navigate to="/login" state={{ from: '/welcome' }} replace />
+  if (!isAdmin) return <Navigate to="/" replace />
+  return <Onboarding />
 }
 
 function AdminRoute({ children }) {
@@ -120,7 +118,7 @@ function AdminRoute({ children }) {
         </div>
         <div>
           <p className="text-slate-300 text-sm font-medium">Admins only</p>
-          <p className="text-slate-600 text-xs mt-1">Your account is an Operator — this section is restricted to Admins.</p>
+          <p className="text-slate-600 text-xs mt-1">Your account is an Operator — ask an admin of your account.</p>
         </div>
       </div>
     )
@@ -143,30 +141,27 @@ export default function App() {
       <Route path="/platform/login"  element={<PlatformLogin />}   />
       <Route path="/platform"        element={<PlatformConsole />} />
 
+      <Route path="/welcome"         element={<OnboardingRoute />} />
+
+      {/* The website manages the account and the Home Assistant connection
+          only. Cameras, detection and alerts live in Home Assistant, so there
+          are deliberately no pages for them here. */}
       <Route element={<ProtectedLayout />}>
-        <Route path="/choose-setup"  element={<AdminRoute><ChooseSetup /></AdminRoute>} />
-        <Route path="/get-started"   element={<AdminRoute><GetStarted /></AdminRoute>} />
-        <Route path="/get-started/home-assistant"
-               element={<AdminRoute><GetStartedHA /></AdminRoute>} />
-        <Route path="/live-feed"     element={<LiveFeed />}    />
-        <Route path="/incidents"     element={<Incidents />}   />
-        <Route path="/alerts"        element={<Alerts />}      />
-        <Route path="/home-devices"  element={<HomeDevices />} />
-        <Route path="/users"         element={<AdminRoute><UsersPage /></AdminRoute>} />
-        <Route path="/cameras"       element={<AdminRoute><Cameras /></AdminRoute>}   />
-        <Route path="/sites"         element={<AdminRoute><Sites /></AdminRoute>}     />
-        <Route path="/shifts"        element={<Shifts />}      />
-        <Route path="/support"       element={<Support />}     />
-        <Route path="/billing"       element={<AdminRoute><Billing /></AdminRoute>}  />
+        <Route path="/home-assistant" element={<HomeAssistant />} />
+        <Route path="/tokens"         element={<AdminRoute><AccessTokens /></AdminRoute>} />
+        <Route path="/billing"        element={<AdminRoute><Billing /></AdminRoute>} />
+        <Route path="/support"        element={<Support />} />
         <Route path="/settings" element={<SettingsLayout />}>
-          <Route index                element={<Navigate to="profile" replace />} />
-          <Route path="profile"       element={<ProfileSettings />} />
-          <Route path="organization"  element={<AdminRoute><OrganizationSettings /></AdminRoute>} />
-          <Route path="detection"     element={<AdminRoute><DetectionSettings /></AdminRoute>}    />
-          <Route path="home-assistant" element={<AdminRoute><HomeAssistantSettings /></AdminRoute>} />
-          <Route path="contacts"      element={<AdminRoute><ContactsSettings /></AdminRoute>}     />
+          <Route index               element={<Navigate to="profile" replace />} />
+          <Route path="profile"      element={<ProfileSettings />} />
+          <Route path="security"     element={<SecuritySettings />} />
+          <Route path="company"      element={<AdminRoute><CompanySettings /></AdminRoute>} />
+          <Route path="team"         element={<AdminRoute><TeamSettings /></AdminRoute>} />
         </Route>
       </Route>
+
+      {/* Old bookmarks (Live Feed, Cameras, Incidents…) land on the Overview. */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

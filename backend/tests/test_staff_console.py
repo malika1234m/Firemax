@@ -51,10 +51,20 @@ async def test_platform_billing_shape(client):
     assert "mrr_usd" in body and "customers" in body and "status_counts" in body
 
 
-async def test_platform_pipelines_shape(client):
+async def test_platform_installations_lists_every_customers_add_ons(client, client2):
+    await signup(client2, org_name="Gamma Co", email="gamma@firemex.io")
+    key = (await client2.get("/licence/me")).json()["licence_key"]
+    await client2.post("/licence/validate",
+                       json={"licence_key": key, "install_id": "d" * 32, "addon_version": "1.6.0"})
     await _platform_login(client)
-    body = (await client.get("/platform/pipelines")).json()
-    assert "model" in body and "pipelines" in body and "online" in body
+    body = (await client.get("/platform/installations")).json()
+    assert body["total"] == 1 and body["checked_in"] == 1
+    assert body["installations"][0]["org_name"] == "Gamma Co"
+    tenants = {t["name"]: t for t in (await client.get("/platform/tenants")).json()["tenants"]}
+    assert tenants["Gamma Co"]["installations"] == 1
+    assert tenants["Gamma Co"]["degraded"] is False
+    overview = (await client.get("/platform/overview")).json()
+    assert overview["addon_versions"] == {"1.6.0": 1}
 
 
 # ── Complaints ───────────────────────────────────────────────────────────────

@@ -1,29 +1,38 @@
 import time
-from datetime import datetime, timedelta
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.config import settings
 from app.database import get_db
 from app.models import (
-    LoginRequest, PlanUpdate, ComplaintUpdate, TenantPlanUpdate,
-    SITE_OFFLINE_AFTER_SECONDS,
+    LoginRequest, PlanUpdate, ComplaintUpdate, TenantPlanUpdate, PLAN_LIMITS,
 )
-from app.health import camera_health
 from app.security import (
     verify_password, create_platform_token, require_platform_admin,
     PLATFORM_COOKIE_NAME,
 )
 from app.rate_limit import rate_limiter
 from app.runtime import uptime_seconds
-from app.routers.ws import subscriber_stats
 from app.plans import list_plans, seed_plans, EDITABLE_FIELDS
 from fastapi import HTTPException
 
 
-async def _agent_pipeline_health(db) -> dict:
-    """Cross-tenant per-camera health. Shares one implementation with the
-    customer-facing /cameras/health so the two can never disagree."""
-    return await camera_health(db)
+# FiremeX runs as the Home Assistant add-on. The cloud never sees cameras or
+# detections; what it does see is each add-on checking its access token, so
+# installations and their last check-in are the fleet the staff look after.
+# An add-on checks once a day while running — quieter than this means it has
+# stopped, lost internet, or lost its token.
+QUIET_AFTER = timedelta(hours=26)
+
+
+def _utc(dt):
+    return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def _live_installs(db, query=None) -> list[dict]:
+    return await db.licence_activations.find(
+        {"removed": {"$ne": True}, **(query or {})}).to_list(5000)
 
 # NOTE: this whole router is the vendor/ops console. It is cross-tenant by
 # design and must only ever be reachable by a platform super-admin — never a
@@ -80,21 +89,12 @@ async def platform_overview(_admin: dict = Depends(require_platform_admin)):
     except Exception:
         db_connected = False
 
-    since = datetime.utcnow() - timedelta(hours=24)
-    health = await _agent_pipeline_health(db)
-    online_pipelines = sum(1 for h in health.values() if h["online"])
+    installs = await _live_installs(db)
+    now = datetime.now(timezone.utc)
+    checked_in = sum(1 for i in installs if _utc(i["last_seen"]) >= now - QUIET_AFTER)
 
     orgs = await db.organizations.count_documents({})
     users = await db.users.count_documents({})
-    cameras = await db.cameras.count_documents({})
-    alerts_24h = await db.alerts.count_documents({"timestamp": {"$gte": since}})
-    unconfirmed = await db.alerts.count_documents({"promoted_to_incident": {"$ne": True}})
-    sites_total = await db.sites.count_documents({})
-    # Counted by recent heartbeat, not the stored flag, which is never cleared.
-    sites_online = await db.sites.count_documents({
-        "last_seen_at": {"$gte": datetime.utcnow() - timedelta(seconds=SITE_OFFLINE_AFTER_SECONDS)}
-    })
-
     status = "operational" if db_connected else "degraded"
 
     return {
@@ -103,22 +103,17 @@ async def platform_overview(_admin: dict = Depends(require_platform_admin)):
         "fleet": {
             "companies": orgs,
             "users": users,
-            "cameras": cameras,
-            "active_pipelines": online_pipelines,
+            "installations": len(installs),
+            "installations_checked_in": checked_in,
         },
-        "sites": {"total": sites_total, "online": sites_online},
-        "alerts": {"last_24h": alerts_24h, "unconfirmed": unconfirmed},
-        "detector": {
-            # Detection runs on the edge agents now, not in the cloud.
-            "runs_at": "edge",
-            "model_path": settings.MODEL_PATH,
-            "process_fps_target": settings.PROCESS_FPS,
-        },
+        # Which add-on versions are out there — tells staff who still needs to
+        # press Update before a fix reaches them.
+        "addon_versions": dict(Counter(i.get("addon_version") or "unknown" for i in installs)
+                               .most_common()),
         "infra": {
             "database_connected": db_connected,
             "database_ping_ms": ping_ms,
             "redis_configured": bool(settings.REDIS_URL),
-            "websocket_viewers": subscriber_stats()["total_connections"],
         },
     }
 
@@ -126,38 +121,28 @@ async def platform_overview(_admin: dict = Depends(require_platform_admin)):
 @router.get("/tenants")
 async def platform_tenants(_admin: dict = Depends(require_platform_admin)):
     db = get_db()
-    health = await _agent_pipeline_health(db)   # camera_id -> {org_id, fps, online, ...}
-    since = datetime.utcnow() - timedelta(hours=24)
+    now = datetime.now(timezone.utc)
 
     tenants = []
     async for org in db.organizations.find({}).sort("created_at", 1):
         org_id = org["org_id"]
-        cameras = await db.cameras.find({"org_id": org_id}).to_list(500)
-        enabled = [c for c in cameras if c.get("enabled", True)]
-
-        online = 0
-        for c in enabled:
-            h = health.get(c["camera_id"])
-            if h and h["online"]:
-                online += 1
-
-        # Degraded = a camera the customer expects to be running isn't reporting.
-        degraded = online < len(enabled)
-
-        users = await db.users.count_documents({"org_id": org_id})
-        alerts_24h = await db.alerts.count_documents({"org_id": org_id, "timestamp": {"$gte": since}})
+        installs = await _live_installs(db, {"org_id": org_id})
+        last = max((_utc(i["last_seen"]) for i in installs), default=None)
+        # Needs attention = it was set up, but no installation has checked in
+        # lately. A customer who never installed is not "degraded".
+        quiet = bool(installs) and last < now - QUIET_AFTER
 
         tenants.append({
             "org_id": org_id,
             "name": org["name"],
             "plan": org.get("plan", "trial"),
             "subscription_status": org.get("subscription_status", "trialing"),
-            "users": users,
-            "cameras_total": len(cameras),
-            "cameras_online": online,
-            "cameras_expected": len(enabled),
-            "alerts_24h": alerts_24h,
-            "degraded": degraded,
+            "users": await db.users.count_documents({"org_id": org_id}),
+            "installations": len(installs),
+            "max_installations": PLAN_LIMITS.get(org.get("plan", "trial"), {}).get("max_installs", 1),
+            "last_check_in": last.isoformat() if last else None,
+            "setup_completed": bool(org.get("onboarding_completed")),
+            "degraded": quiet,
         })
 
     return {"tenants": tenants, "degraded_count": sum(1 for t in tenants if t["degraded"])}
@@ -220,14 +205,15 @@ async def platform_set_tenant_plan(
     await db.organizations.update_one({"org_id": org_id}, {"$set": updates})
 
     # Report (don't enforce) an over-quota downgrade.
-    cameras = await db.cameras.count_documents({"org_id": org_id})
+    installs = len(await _live_installs(db, {"org_id": org_id}))
     users = await db.users.count_documents({"org_id": org_id})
     limits = plans[body.plan]
+    max_installs = PLAN_LIMITS.get(body.plan, {}).get("max_installs", 1)
     warnings = []
-    if cameras > limits["max_cameras"]:
+    if installs > max_installs:
         warnings.append(
-            f"{cameras} cameras exceeds the {limits['label']} limit of {limits['max_cameras']} — "
-            "existing cameras keep running, but no new ones can be added."
+            f"{installs} Home Assistant installations exceeds the {limits['label']} limit of "
+            f"{max_installs} — the newest ones drop to the one-camera free tier at their next check."
         )
     if users > limits["max_users"]:
         warnings.append(
@@ -306,41 +292,31 @@ async def platform_billing(_admin: dict = Depends(require_platform_admin)):
     }
 
 
-# ── Pipelines & models ──────────────────────────────────────────────────────
+# ── Home Assistant installations ────────────────────────────────────────────
 
-@router.get("/pipelines")
-async def platform_pipelines(_admin: dict = Depends(require_platform_admin)):
+@router.get("/installations")
+async def platform_installations(_admin: dict = Depends(require_platform_admin)):
+    """Every add-on using a customer's token, quietest first — the ones that
+    stopped checking in are the ones worth a call."""
     db = get_db()
-    health = await _agent_pipeline_health(db)   # from edge-agent heartbeats
-
-    # Join reported pipeline health with camera + org metadata.
+    now = datetime.now(timezone.utc)
     org_names = {o["org_id"]: o["name"] async for o in db.organizations.find({}, {"org_id": 1, "name": 1})}
     rows = []
-    for camera_id, h in health.items():
-        cam = await db.cameras.find_one({"camera_id": camera_id}, {"name": 1, "zone": 1, "org_id": 1})
+    for i in await _live_installs(db):
+        last = _utc(i["last_seen"])
         rows.append({
-            "camera_id": camera_id,
-            "camera_name": cam["name"] if cam else "(unknown)",
-            "zone": cam.get("zone") if cam else None,
-            "org_name": org_names.get(h["org_id"], "(unknown)"),
-            "fps": h["fps"],
-            "inference_ms": h["inference_ms"],
-            "last_frame_age_s": h["last_frame_age_s"],
-            "online": h["online"],
+            "install_id": i["install_id"],
+            "org_name": org_names.get(i["org_id"], "(unknown)"),
+            "addon_version": i.get("addon_version"),
+            "first_seen": _utc(i["first_seen"]).isoformat(),
+            "last_seen": last.isoformat(),
+            "checked_in": last >= now - QUIET_AFTER,
         })
-    rows.sort(key=lambda r: (r["online"], r["org_name"]))
-
+    rows.sort(key=lambda r: (r["checked_in"], r["last_seen"]))
     return {
-        "model": {
-            # Detection runs on the edge agents; the cloud no longer loads a model.
-            "runs_at": "edge",
-            "model_path": settings.MODEL_PATH,
-            "default_confidence_threshold": settings.CONFIDENCE_THRESHOLD,
-            "process_fps_target": settings.PROCESS_FPS,
-        },
-        "pipelines": rows,
+        "installations": rows,
         "total": len(rows),
-        "online": sum(1 for r in rows if r["online"]),
+        "checked_in": sum(1 for r in rows if r["checked_in"]),
     }
 
 

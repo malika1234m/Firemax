@@ -22,7 +22,7 @@ export default function Login() {
     try {
       await login(email, password)
     } catch (err) {
-      setError(err.message || 'Login failed')
+      setError(err.message || "We couldn't sign you in. Check your email and password and try again.")
     } finally {
       setLoading(false)
     }
@@ -30,8 +30,9 @@ export default function Login() {
 
   return (
     <AuthLayout
-      heading="Sign In to Your Account"
-      footer={<>Don't have an account? <Link to="/signup" className="text-ember font-semibold hover:text-ember/80">Sign Up</Link></>}
+      heading="Welcome back"
+      subheading="Sign in to look after your FiremeX account."
+      footer={<>New to FiremeX? <Link to="/signup" className="text-ember font-semibold hover:text-ember/80">Create an account</Link></>}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
@@ -41,7 +42,7 @@ export default function Login() {
         )}
 
         <label className="space-y-1.5 block">
-          <span className="text-[12px] text-slate-400 font-medium">Email Address</span>
+          <span className="text-[12px] text-slate-400 font-medium">Email</span>
           <div className="relative">
             <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
             <input type="email" required autoFocus className="field !pl-10"
@@ -52,7 +53,7 @@ export default function Login() {
         <label className="space-y-1.5 block">
           <div className="flex items-center justify-between">
             <span className="text-[12px] text-slate-400 font-medium">Password</span>
-            <Link to="/forgot-password" className="text-[12px] text-ember hover:text-ember/80 font-medium">Forgot Password?</Link>
+            <Link to="/forgot-password" className="text-[12px] text-ember hover:text-ember/80 font-medium">Forgot your password?</Link>
           </div>
           <div className="relative">
             <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
@@ -67,7 +68,7 @@ export default function Login() {
 
         <button type="submit" disabled={loading}
                 className="w-full bg-ember text-white text-sm font-semibold py-3 rounded-lg hover:bg-ember-dark disabled:opacity-40 transition-colors mt-2">
-          {loading ? 'Signing In…' : 'Sign In'}
+          {loading ? 'Signing you in…' : 'Sign in'}
         </button>
       </form>
     </AuthLayout>

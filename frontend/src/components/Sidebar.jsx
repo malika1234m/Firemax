@@ -1,45 +1,28 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Video, AlertTriangle, Bell, Users, Camera, Settings, Home, LogOut, CalendarClock, CreditCard, LifeBuoy, Server, Rocket } from 'lucide-react'
+import { LayoutDashboard, Home, KeyRound, CreditCard, Settings, LifeBuoy, LogOut } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useOrganization } from '../context/OrganizationContext'
 import logo from '../assets/logo.png'
+import { roleLabel } from '../lib/format'
 
+// The website is the account: no camera, alert or incident pages. Those live
+// in the customer's Home Assistant, and are not to be rebuilt here.
 const NAV = [
-  { to: '/',             label: 'Dashboard',    icon: LayoutDashboard, end: true,  adminOnly: false },
-  // Setup is an admin job, and the page reads admin-only endpoints — an
-  // operator would just see an empty checklist and broken links.
-  { to: '/get-started',  label: 'Get Started',  icon: Rocket,          end: false, adminOnly: true  },
-  { to: '/live-feed',    label: 'Live Feed',    icon: Video,           end: false, adminOnly: false },
-  { to: '/incidents',    label: 'Incidents',    icon: AlertTriangle,   end: false, adminOnly: false },
-  { to: '/alerts',       label: 'Alerts',       icon: Bell,            end: false, adminOnly: false },
-  { to: '/home-devices', label: 'Home Devices', icon: Home,            end: false, adminOnly: false },
-  { to: '/shifts',       label: 'Shifts',       icon: CalendarClock,   end: false, adminOnly: false },
-  { to: '/users',        label: 'Users',        icon: Users,           end: false, adminOnly: true  },
-  { to: '/cameras',      label: 'Cameras',      icon: Camera,          end: false, adminOnly: true  },
-  // Sites exist only in the edge-agent deployment: a Home Assistant add-on
-  // enrolls nothing and has no site token, so the page would be permanently
-  // empty for those customers. Hidden rather than shown-and-broken.
-  { to: '/sites',        label: 'Sites',        icon: Server,          end: false, adminOnly: true, edgeOnly: true },
-  { to: '/billing',      label: 'Billing',      icon: CreditCard,      end: false, adminOnly: true  },
-  { to: '/support',      label: 'Support',      icon: LifeBuoy,        end: false, adminOnly: false },
-  { to: '/settings',     label: 'Settings',     icon: Settings,        end: false, adminOnly: false },
+  { to: '/',               label: 'Overview',                  icon: LayoutDashboard, end: true,  adminOnly: false },
+  { to: '/home-assistant', label: 'Home Assistant Connection', icon: Home,            end: false, adminOnly: false },
+  // The token and billing endpoints are admin-only.
+  { to: '/tokens',         label: 'Access Tokens',             icon: KeyRound,        end: false, adminOnly: true  },
+  { to: '/billing',        label: 'Plans & Billing',           icon: CreditCard,      end: false, adminOnly: true  },
+  { to: '/settings',       label: 'Account Settings',          icon: Settings,        end: false, adminOnly: false },
+  { to: '/support',        label: 'Help & Support',            icon: LifeBuoy,        end: false, adminOnly: false },
 ]
 
 export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
   const { user, isAdmin, logout } = useAuth()
-  // Shared with the route guard and the settings page, so changing how FiremeX
-  // runs re-shapes this nav straight away rather than after a reload.
-  const { org, isHomeAssistant } = useOrganization()
+  const { org } = useOrganization()
   const navigate = useNavigate()
 
-  // Get Started points at whichever guide matches how this customer runs
-  // FiremeX — the two journeys share almost no steps.
-  const navItems = NAV
-    .filter(item => !item.adminOnly || isAdmin)
-    .filter(item => !item.edgeOnly || !isHomeAssistant)
-    .map(item => (item.to === '/get-started' && isHomeAssistant
-      ? { ...item, to: '/get-started/home-assistant' }
-      : item))
+  const navItems = NAV.filter(item => !item.adminOnly || isAdmin)
 
   const handleLogout = async () => {
     await logout()
@@ -61,7 +44,7 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
       />
 
       <aside
-        className={`w-[216px] shrink-0 h-screen bg-panel border-r border-white/[0.06] flex flex-col
+        className={`w-[232px] shrink-0 h-screen bg-panel border-r border-white/[0.06] flex flex-col
           fixed top-0 left-0 z-50 transition-transform duration-200
           md:sticky md:z-auto md:translate-x-0
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
@@ -115,9 +98,9 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[12px] text-slate-200 font-medium truncate">{user?.name}</p>
-          <p className="text-[10px] text-slate-600 truncate capitalize">{user?.role}</p>
+          <p className="text-[10px] text-slate-600 truncate">{roleLabel(user?.role)}</p>
         </div>
-        <button onClick={handleLogout} title="Log out"
+        <button onClick={handleLogout} title="Sign out"
                 className="text-slate-600 hover:text-hazard transition-colors shrink-0">
           <LogOut size={14} />
         </button>

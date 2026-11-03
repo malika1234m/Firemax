@@ -52,7 +52,8 @@ async def test_platform_overview_shape(client):
     await client.post("/platform/auth/login", json={"email": PLATFORM_EMAIL, "password": PLATFORM_PASS})
     body = (await client.get("/platform/overview")).json()
     assert body["status"] in ("operational", "degraded")
-    assert "companies" in body["fleet"] and "cameras" in body["fleet"]
+    assert "companies" in body["fleet"] and "installations" in body["fleet"]
+    assert "cameras" not in body["fleet"]
     assert "database_connected" in body["infra"]
     assert body["uptime_seconds"] >= 0
 
