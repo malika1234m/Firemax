@@ -227,9 +227,11 @@ async def validate_licence(body: LicenceCheck, request: Request,
     if body.lease_seq is not None and not activation.get("chain"):
         await db.licence_activations.update_one({"_id": activation["_id"]}, {"$set": {"chain": True}})
     sent = body.lease_seq if body.lease_seq is not None else (-1 if activation.get("chain") else None)
-    if not created and sent is not None and sent < current_seq:
-        # A stale number. Once on its own it is a lost reply (we renewed, the
-        # add-on never heard). Two copies leapfrog each other, so EVERY check
+    # Anything but the number last issued is stale — a LOWER number is a copy
+    # left behind, a HIGHER one was made up (only we issue them).
+    if not created and sent is not None and sent != current_seq:
+        # Once on its own it is a lost reply (we renewed, the add-on never
+        # heard). Two copies leapfrog each other, so EVERY check
         # is stale — a second stale check within the window is a clone.
         recent = [t for t in activation.get("stale_checks", [])
                   if subscription._utc(t) >= now - CLONE_WINDOW]

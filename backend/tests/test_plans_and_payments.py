@@ -302,3 +302,12 @@ async def test_a_copy_cannot_dodge_the_check_by_sending_no_number(client):
     body = (await client.post("/licence/validate", json=_check_seq(key, None))).json()
     assert body["valid"] is False and "another machine" in body["reason"]
     assert s2 > s1
+
+
+async def test_a_made_up_lease_number_counts_as_stale(client):
+    await signup(client)
+    key = await _key(client)
+    await client.post("/licence/validate", json=_check_seq(key, None))
+    await client.post("/licence/validate", json=_check_seq(key, 999_999))
+    body = (await client.post("/licence/validate", json=_check_seq(key, 999_999))).json()
+    assert body["valid"] is False and "another machine" in body["reason"]
