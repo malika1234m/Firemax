@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "updated": "2026-11-04T05:15:07.464Z",
+  "skills": {
+    "anthropic-skills:deep-research": {
+      "total_invocations": 1,
+      "last_used": "2026-11-04"
+    }
+  }
+}

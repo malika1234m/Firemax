@@ -92,7 +92,7 @@ export default function Billing() {
     const res = await apiJson('/billing/subscription', {
       method: 'POST', body: JSON.stringify({ plan, interval, cameras }),
     })
-    toast({ type: 'success', message: res.effective === 'renewal' ? 'Done — the change starts at your next renewal.' : 'Plan changed.' })
+    toast({ type: 'success', message: res.effective === 'renewal' ? 'Done — the change starts at your next renewal.' : 'Done — it starts as soon as the payment goes through.' })
     load()
   })
 

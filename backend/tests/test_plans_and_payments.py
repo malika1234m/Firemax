@@ -132,8 +132,15 @@ async def test_adding_cameras_charges_now_removing_waits_for_renewal(client, db,
     _sub_qty[0] = 12
 
     res = await client.post("/billing/subscription", json={"plan": "pro", "interval": "month", "cameras": 20})
-    assert res.json() == {"changed": True, "effective": "now"}
-    assert fake_stripe.calls[-1][1]["proration_behavior"] == "always_invoice"
+    assert res.json() == {"changed": True, "effective": "after_payment"}
+    sent = fake_stripe.calls[-1][1]
+    assert sent["proration_behavior"] == "always_invoice"
+    # Not granted until Stripe says the extra cameras were paid for.
+    assert sent["payment_behavior"] == "pending_if_incomplete"
+    assert (await _org(db))["cameras"] == 12
+    await _send(client, "customer.subscription.updated", {
+        "id": "sub_1", "customer": "cus_1", "status": "active",
+        "items": {"data": [{"quantity": 20, "price": {"metadata": {"plan_id": "pro"}, "recurring": {"interval": "month"}}}]}})
     assert (await _org(db))["cameras"] == 20
 
     _sub_qty[0] = 20
@@ -282,3 +289,16 @@ async def test_lease_is_thirty_days(client):
     key = await _key(client)
     claims = _claims((await client.post("/licence/validate", json=_check(key))).json()["entitlement"])
     assert claims["exp"] - claims["iat"] == 30 * 86400
+
+
+async def test_a_copy_cannot_dodge_the_check_by_sending_no_number(client):
+    await signup(client)
+    key = await _key(client)
+    seq = lambda body: _claims(body["entitlement"])["seq"]
+    s1 = seq((await client.post("/licence/validate", json=_check_seq(key, None))).json())
+    s2 = seq((await client.post("/licence/validate", json=_check_seq(key, s1))).json())
+    # A copy leaves the number out, twice: that is two stale checks.
+    await client.post("/licence/validate", json=_check_seq(key, None))
+    body = (await client.post("/licence/validate", json=_check_seq(key, None))).json()
+    assert body["valid"] is False and "another machine" in body["reason"]
+    assert s2 > s1

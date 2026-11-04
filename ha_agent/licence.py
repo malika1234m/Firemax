@@ -207,7 +207,9 @@ def resolve(licence_key: str, addon_version: str | None = None,
     this_install = install_id()
     cache = _read_cache()
     cached_claims = None
-    if cache and cache.get("key") == key:
+    # A cached refusal keeps its last lease only for the lease number; it must
+    # never be honoured as a grant, online or off.
+    if cache and cache.get("key") == key and cache.get("valid"):
         cached_claims = verify(cache.get("entitlement"), this_install)
 
     fresh_enough = (
@@ -251,8 +253,12 @@ def resolve(licence_key: str, addon_version: str | None = None,
         # does not generate a call on every restart.
         answer = _free(result.get("reason") or "licence not valid")
 
+    # A refusal carries no lease; keep the last signed one so this machine
+    # keeps its place in the lease chain. It grants nothing on its own:
+    # resolve() only honours it while the cached answer says valid.
     _write_cache({**answer, "key": key, "checked_at": time.time(),
-                  "entitlement": result.get("entitlement")})
+                  "entitlement": result.get("entitlement")
+                  or ((cache or {}).get("entitlement") if (cache or {}).get("key") == key else None)})
     return answer
 
 

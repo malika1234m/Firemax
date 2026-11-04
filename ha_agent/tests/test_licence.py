@@ -158,3 +158,18 @@ def test_turning_the_clock_back_does_not_revive_a_lease(signer, monkeypatch):
     """A lease issued two days 'in the future' means this clock was wound back."""
     cloud(monkeypatch, lambda iid: {"valid": True, "entitlement": signer(iid, 8, iat_offset=2 * 86400)})
     assert licence.resolve(KEY)["max_cameras"] == licence.FREE_TIER_MAX_CAMERAS
+
+
+def test_a_refusal_keeps_the_lease_number_but_grants_nothing(signer, monkeypatch):
+    """After a refusal the next check still carries this machine's lease
+    number, and the kept lease does not unlock cameras — online or offline."""
+    answers = iter([lambda iid: {"valid": True, "entitlement": signer(iid, 8, seq=6)},
+                    lambda iid: {"valid": False, "reason": "already running on another machine"}])
+    cloud(monkeypatch, lambda iid: next(answers)(iid))
+    licence.resolve(KEY)
+    monkeypatch.setattr(licence, "REFRESH_SECONDS", 0)
+    assert licence.resolve(KEY)["max_cameras"] == licence.FREE_TIER_MAX_CAMERAS
+    # Cloud unreachable now: the kept lease must not come back to life.
+    monkeypatch.setattr(licence, "_check_cloud", lambda *a, **kw: sent.append(kw) or None)
+    assert licence.resolve(KEY)["max_cameras"] == licence.FREE_TIER_MAX_CAMERAS
+    assert sent[-1]["lease_seq"] == 6

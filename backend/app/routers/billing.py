@@ -256,24 +256,23 @@ async def change_subscription(body: dict, admin: UserPublic = Depends(require_ad
     # More cameras, or a bigger plan: start now and charge the difference now.
     # Fewer cameras on the same plan: keep what was paid for until renewal.
     reducing = same_price and new_qty < old_qty
-    stripe.Subscription.modify(
-        sub["id"],
-        items=[{"id": item["id"], "price": await _price_id(plan, interval), "quantity": new_qty}],
-        proration_behavior="none" if reducing else "always_invoice",
-        metadata={"org_id": admin.org_id, "plan": plan["plan_id"], "interval": interval,
-                  "cameras": str(cameras)},
-    )
-    if not reducing:
-        await db.organizations.update_one({"org_id": admin.org_id}, {"$set": {
-            "plan": plan["plan_id"], "billing_interval": interval,
-            "cameras": cameras if plan["per_camera"] else None}})
+    items = [{"id": item["id"], "price": await _price_id(plan, interval), "quantity": new_qty}]
+    if reducing:
+        stripe.Subscription.modify(sub["id"], items=items, proration_behavior="none")
+    else:
+        # The upgrade is only applied once its invoice is paid: with a declined
+        # card Stripe keeps the old plan and nothing here changes. The database
+        # follows from customer.subscription.updated, never from this request,
+        # so no camera is granted before the money arrives.
+        stripe.Subscription.modify(sub["id"], items=items, proration_behavior="always_invoice",
+                                   payment_behavior="pending_if_incomplete")
     await account_events.record(
         db, admin.org_id, "subscription_changed",
         f"{admin.name} changed the plan to {plan['label']}"
         + (f" with {cameras} cameras" if plan["per_camera"] else "")
         + (", billed yearly" if interval == "year" else ", billed monthly")
         + (" — takes effect at renewal" if reducing else ""))
-    return {"changed": True, "effective": "renewal" if reducing else "now"}
+    return {"changed": True, "effective": "renewal" if reducing else "after_payment"}
 
 
 @router.post("/cancel")

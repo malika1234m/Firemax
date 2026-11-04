@@ -221,7 +221,13 @@ async def validate_licence(body: LicenceCheck, request: Request,
     # renew moves the chain on and the other then presents a stale number.
     ip = _client_ip(request)
     current_seq = activation.get("lease_seq", 0)
-    if not created and body.lease_seq is not None and body.lease_seq < current_seq:
+    # Once an installation has shown it takes part in the chain (1.7.0+), a
+    # check WITHOUT a number counts as stale too — otherwise a copy could
+    # dodge detection by simply not sending one.
+    if body.lease_seq is not None and not activation.get("chain"):
+        await db.licence_activations.update_one({"_id": activation["_id"]}, {"$set": {"chain": True}})
+    sent = body.lease_seq if body.lease_seq is not None else (-1 if activation.get("chain") else None)
+    if not created and sent is not None and sent < current_seq:
         # A stale number. Once on its own it is a lost reply (we renewed, the
         # add-on never heard). Two copies leapfrog each other, so EVERY check
         # is stale — a second stale check within the window is a clone.
