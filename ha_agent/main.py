@@ -316,8 +316,8 @@ def run():
     # Configuration tab is saved, so a newly pasted key takes effect the moment
     # the customer saves it — and then re-resolved daily in the loop below, so a
     # cancelled licence or an installation removed by its owner is noticed on a
-    # machine that never restarts. resolve() answers from its cache for a week,
-    # so the daily call costs no network round trip most days.
+    # machine that never restarts. Each daily call renews the lease with the
+    # cloud, reporting how many cameras are being watched.
     entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION)
     max_cameras = entitlement.get("max_cameras")
     logger.info(licence_module.describe(entitlement))
@@ -458,7 +458,8 @@ def run():
 
         if now - last_licence >= LICENCE_RECHECK_INTERVAL:
             last_licence = now
-            entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION)
+            entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION,
+                                                 cameras_in_use=len(pipelines))
             if entitlement.get("max_cameras") != max_cameras:
                 max_cameras = entitlement.get("max_cameras")
                 logger.info(licence_module.describe(entitlement))

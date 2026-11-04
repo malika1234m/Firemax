@@ -120,11 +120,11 @@ async def test_authority_contacts_scoped_to_own_org(client, client2):
 # ── Plan limits ──────────────────────────────────────────────────────────────
 
 async def test_camera_plan_limit_enforced(client):
-    await signup(client)   # trial plan: max_cameras = 2
-    await client.post("/cameras/", json={"name": "Cam 1", "stream_url": "rtsp://1"})
-    await client.post("/cameras/", json={"name": "Cam 2", "stream_url": "rtsp://2"})
+    await signup(client)   # trial plan: max_cameras = 4
+    for n in range(1, 5):
+        await client.post("/cameras/", json={"name": f"Cam {n}", "stream_url": f"rtsp://{n}"})
 
-    res = await client.post("/cameras/", json={"name": "Cam 3", "stream_url": "rtsp://3"})
+    res = await client.post("/cameras/", json={"name": "Cam 5", "stream_url": "rtsp://5"})
     assert res.status_code == 402
 
 

@@ -25,21 +25,26 @@ def signer(tmp_path, monkeypatch):
     monkeypatch.setattr(licence, "CACHE_PATH", str(tmp_path / "licence.json"))
     monkeypatch.setattr(licence, "INSTALL_ID_PATH", str(tmp_path / "install_id"))
 
-    def sign(install_id, max_cameras=None, exp_in=3600, key=private):
-        now = int(time.time())
+    def sign(install_id, max_cameras=None, exp_in=3600, key=private, seq=1, iat_offset=0):
+        now = int(time.time()) + iat_offset
         payload = json.dumps({"v": 1, "install_id": install_id, "plan": "pro",
                               "max_cameras": max_cameras, "organization": "Acme",
-                              "iat": now, "exp": now + exp_in}).encode()
+                              "iat": now, "exp": now + exp_in, "seq": seq}).encode()
         return {"payload": base64.b64encode(payload).decode(),
                 "signature": base64.b64encode(key.sign(payload)).decode()}
     return sign
 
 
+sent: list = []
+
+
 def cloud(monkeypatch, answer):
     calls = []
+    sent.clear()
 
-    def fake(key, install_id, version):
+    def fake(key, install_id, version, **kw):
         calls.append(install_id)
+        sent.append(kw)
         return answer(install_id) if callable(answer) else answer
     monkeypatch.setattr(licence, "_check_cloud", fake)
     return calls
@@ -127,3 +132,29 @@ def test_released_public_key_is_well_formed():
     """The baked-in key must decode to a 32-byte Ed25519 public key."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     Ed25519PublicKey.from_public_bytes(base64.b64decode(licence.LICENCE_PUBLIC_KEY))
+
+
+def test_lease_number_is_sent_back_on_the_next_check(signer, monkeypatch):
+    """Each renewal hands back the lease it holds, so the cloud can tell this
+    machine from a copy of its /data folder."""
+    seqs = iter([4, 5])
+    cloud(monkeypatch, lambda iid: {"valid": True, "entitlement": signer(iid, 8, seq=next(seqs))})
+    licence.resolve(KEY, cameras_in_use=3)
+    assert sent[-1] == {"lease_seq": None, "cameras_in_use": 3}
+    monkeypatch.setattr(licence, "REFRESH_SECONDS", 0)       # due for renewal
+    assert licence.resolve(KEY)["max_cameras"] == 8
+    assert sent[-1]["lease_seq"] == 4
+
+
+def test_licence_is_renewed_daily(signer, monkeypatch):
+    calls = cloud(monkeypatch, lambda iid: {"valid": True, "entitlement": signer(iid, 4)})
+    licence.resolve(KEY)
+    licence.resolve(KEY)
+    assert len(calls) == 1                                    # cached within the day
+    assert licence.REFRESH_SECONDS == 24 * 3600
+
+
+def test_turning_the_clock_back_does_not_revive_a_lease(signer, monkeypatch):
+    """A lease issued two days 'in the future' means this clock was wound back."""
+    cloud(monkeypatch, lambda iid: {"valid": True, "entitlement": signer(iid, 8, iat_offset=2 * 86400)})
+    assert licence.resolve(KEY)["max_cameras"] == licence.FREE_TIER_MAX_CAMERAS

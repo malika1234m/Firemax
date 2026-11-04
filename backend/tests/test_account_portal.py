@@ -89,23 +89,28 @@ async def test_invoices_are_empty_without_a_payment_account(client):
     assert res.json() == {"invoices": []}
 
 
-async def test_plans_describe_home_assistant_installations(client):
+async def test_plans_are_sold_by_camera(client):
     plans = {p["plan_id"]: p for p in (await client.get("/billing/plans")).json()["plans"]}
-    assert plans["pro"]["max_installs"] == 5
+    assert plans["free"]["cameras"] == 1 and plans["trial"]["cameras"] == 4
+    assert plans["starter"]["label"] == "Home" and plans["starter"]["cameras"] == 4
+    assert plans["pro"]["per_camera"] and (plans["pro"]["min_cameras"], plans["pro"]["max_cameras"]) == (5, 64)
+    for p in plans.values():
+        # A year costs ten months; one Home Assistant per subscription.
+        assert p["price_year_usd"] == p["price_month_usd"] * 10
+        assert p["max_installs"] == 1
     assert not any("Live feed" in f for p in plans.values() for f in p["features"])
 
 
-async def test_old_default_plan_features_are_updated_but_edits_kept(client, db):
-    from app.plans import seed_plans
-    await seed_plans()
-    await db.plans.update_one({"plan_id": "trial"}, {"$set": {"features":
-        ["Full detection pipeline", "Live feed & incident review", "Email alerts"]}})
+async def test_plans_from_the_old_catalog_are_replaced_but_new_edits_kept(client, db):
+    from app.plans import list_plans, seed_plans
+    # A row from the install-based catalog, as production has it.
+    await db.plans.insert_one({"plan_id": "pro", "label": "Pro", "price_usd": 199,
+                               "max_cameras": 50, "features": ["Up to 5 Home Assistant installations"]})
+    plans = {p["plan_id"]: p for p in await list_plans()}
+    assert plans["pro"]["price_month_usd"] == 3 and plans["pro"]["per_camera"]
     await db.plans.update_one({"plan_id": "pro"}, {"$set": {"features": ["Our own wording"]}})
     await seed_plans()
-    trial = await db.plans.find_one({"plan_id": "trial"})
-    pro = await db.plans.find_one({"plan_id": "pro"})
-    assert "Live feed & incident review" not in trial["features"]
-    assert pro["features"] == ["Our own wording"]
+    assert (await db.plans.find_one({"plan_id": "pro"}))["features"] == ["Our own wording"]
 
 
 async def test_installation_times_carry_a_timezone(client):

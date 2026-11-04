@@ -13,6 +13,8 @@ async def connect_db():
     await db.organizations.create_index("stripe_customer_id")
     # One row per installation per org; also what /licence/validate looks up.
     await db.licence_activations.create_index([("org_id", 1), ("install_id", 1)], unique=True)
+    await db.stripe_events.create_index("event_id", unique=True)
+    await db.payments.create_index([("org_id", 1), ("created", -1)])
 
     await db.alerts.create_index("timestamp")
     await db.alerts.create_index("org_id")

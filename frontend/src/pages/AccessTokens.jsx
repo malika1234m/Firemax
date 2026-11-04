@@ -8,6 +8,7 @@ import { useConnection } from '../hooks/useConnection'
 import { CopyButton } from '../components/Copy'
 import PageHeader from '../components/PageHeader'
 import { OPEN_ADDON_URL } from '../lib/homeAssistant'
+import { planLabel } from '../lib/format'
 
 /**
  * The access token is the add-on's licence key: the one thing that ties a
@@ -59,11 +60,11 @@ export default function AccessTokens() {
           </h2>
           {licence && (licence.entitled ? (
             <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-lg border bg-safe/10 text-safe border-safe/25">
-              <CheckCircle2 size={12} /> Active — unlocks every camera
+              <CheckCircle2 size={12} /> Active — up to {licence.max_cameras} camera{licence.max_cameras === 1 ? '' : 's'}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-lg border bg-warn/10 text-warn border-warn/25">
-              <AlertCircle size={12} /> Free tier only — subscription not active
+              <AlertCircle size={12} /> Free plan — 1 camera
             </span>
           ))}
         </div>
@@ -83,21 +84,21 @@ export default function AccessTokens() {
 
         <div className="grid sm:grid-cols-2 gap-3 text-[12.5px]">
           <div className="rounded-lg bg-black/20 border border-white/[0.05] px-3 py-2.5">
-            <p className="text-slate-500">Used by</p>
+            <p className="text-slate-400">Used by</p>
             <p className="text-slate-200 mt-0.5">
-              {status.count ?? 0} of {licence?.max_installs ?? '—'} Home Assistant installation{licence?.max_installs === 1 ? '' : 's'}
+              {status.count ?? 0} of {licence?.max_installs ?? '—'} Home Assistant
             </p>
           </div>
           <div className="rounded-lg bg-black/20 border border-white/[0.05] px-3 py-2.5">
-            <p className="text-slate-500">Plan</p>
-            <p className="text-slate-200 mt-0.5 capitalize">{licence?.plan ?? '—'}</p>
+            <p className="text-slate-400">Plan</p>
+            <p className="text-slate-200 mt-0.5">{licence ? `${planLabel(licence.plan)} · ${licence.max_cameras} camera${licence.max_cameras === 1 ? '' : 's'}` : '—'}</p>
           </div>
         </div>
 
         {!licence?.entitled && licence && (
           <p className="text-[12px] text-slate-400">
-            Your subscription is not active, so this token only allows one camera.{' '}
-            <Link to="/billing" className="text-brand hover:underline">Choose a plan</Link> to unlock every camera.
+            You're on the Free plan, so this token lets FiremeX watch one camera.{' '}
+            <Link to="/billing" className="text-brand hover:underline">Choose a plan</Link> to watch more.
           </p>
         )}
 
@@ -131,10 +132,11 @@ export default function AccessTokens() {
           <ShieldCheck size={14} className="text-slate-500" /> Keeping it safe
         </h2>
         <ul className="space-y-2 text-[12.5px] text-slate-400">
-          <li>• Treat it like a password: anyone who has it can use your plan on their own Home Assistant.</li>
+          <li>• Treat it like a password. Your plan covers one Home Assistant: if someone else uses the token, one of you is refused, and you'll see it in your account activity.</li>
+          <li>• Copying the add-on to a second machine doesn't share the licence either — the copy is spotted and refused.</li>
           <li>• Each Home Assistant using it takes one of your plan's installations. You can see and remove them under{' '}
             <Link to="/home-assistant" className="text-brand hover:underline">Home Assistant Connection</Link>.</li>
-          <li>• The add-on keeps working without internet for up to 60 days after its last check.</li>
+          <li>• The add-on keeps your plan's cameras for 30 days without internet, then watches 1 camera until it can check in again.</li>
         </ul>
       </section>
     </div>

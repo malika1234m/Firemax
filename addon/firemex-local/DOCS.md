@@ -144,22 +144,25 @@ FiremeX is free for **one camera**. Install it, press Start, and it watches a
 single camera with no account and no key — enough to see it work on your own
 footage.
 
-To watch every camera, paste your access token (licence key) into the
+To watch more cameras, paste your access token (licence key) into the
 `licence_key` option. You will find it on the FiremeX website under
-**Access Tokens**.
+**Access Tokens**. Your plan sets the number of cameras: the 14-day trial and
+Home cover 4, Pro covers the number you choose (5 to 64). Cameras beyond that
+are listed in the log and not watched; detection keeps running on the rest.
 
 The key is checked against the FiremeX cloud and the signed answer is cached in
-`/data`, so the add-on keeps running with no internet for up to 60 days. It is
-re-checked daily while running. If the licence server is ever unreachable, the
-cached answer is used — and if it cannot be resolved at all, the add-on drops to
-the free tier rather than stopping. It is a fire detector; it does not stop
-watching your building because a subscription server is down.
+`/data`, so the add-on keeps your plan's cameras with no internet for up to 30
+days. It is renewed daily while running. If the licence server is ever
+unreachable, the cached answer is used — and if it cannot be resolved at all,
+the add-on drops to one camera rather than stopping. It is a fire detector; it
+does not stop watching your building because a subscription server is down.
 
-Each Home Assistant using your key counts as one **installation**, and your plan
-allows a fixed number (Trial and Starter: 1, Pro: 5). You can see and remove
-installations on the FiremeX website under **Home Assistant Connection**. If the
-log says the licence is *already active* on another installation, remove the old
-one there — for example after reinstalling Home Assistant.
+Each subscription covers **one Home Assistant**. A second Home Assistant using
+the same key is refused, and so is a copy of this add-on's data running on a
+second machine (for example a backup restored onto another box while the
+original is still running). You can see and remove the Home Assistant using
+your key on the FiremeX website under **Home Assistant Connection** — do that
+after moving to new hardware.
 
 ## EZVIZ cameras
 

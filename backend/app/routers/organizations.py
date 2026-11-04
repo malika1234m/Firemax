@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app import account_events
+from app import account_events, subscription
 from app.models import (AccountEventPublic, DeploymentModeUpdate, OnboardingUpdate,
                         OrganizationPublic, OrganizationUpdate, UserPublic)
 from app.database import get_db
@@ -11,7 +11,8 @@ router = APIRouter(prefix="/organizations", tags=["organizations"])
 @router.get("/me", response_model=OrganizationPublic)
 async def my_organization(user: UserPublic = Depends(get_current_user)):
     db = get_db()
-    org = await db.organizations.find_one({"org_id": user.org_id})
+    # Refreshed so a trial that ended overnight shows as ended everywhere.
+    org = await subscription.refresh(db, await db.organizations.find_one({"org_id": user.org_id}))
     return OrganizationPublic(**org)
 
 

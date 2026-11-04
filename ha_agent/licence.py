@@ -25,7 +25,7 @@ Since 1.3.0 a licence is bound to this installation and signed by the cloud:
   installations, so a key handed around stops working on the extra machines,
   and the owner sees every installation in the dashboard and can remove one.
 - A valid answer carries an Ed25519 signature over {installation id, plan,
-  limit, expiry}. The add-on trusts only that signed part, checked with the
+  camera limit, expiry, lease number}. The add-on trusts only that signed part, checked with the
   public key below. Editing the cached file, copying it to another machine, or
   pointing the add-on at a home-made licence server all fail verification and
   land on the free tier.
@@ -60,14 +60,20 @@ INSTALL_ID_PATH = os.environ.get("INSTALL_ID_PATH", "/data/install_id")
 # attacker could swap would make the signature check worthless.
 LICENCE_PUBLIC_KEY = "396MfhQkVC9XDbg+H69bN7yKzxDtr2ZKOKYedPwgNbU="
 
-# How often a licence is re-checked when the cloud is reachable.
-REFRESH_SECONDS = 7 * 24 * 3600
+# How often a licence is re-checked when the cloud is reachable. Daily since
+# 1.7.0 (weekly before): each check renews the lease, and a copy of this
+# installation on another machine is caught at the next renewal.
+REFRESH_SECONDS = 24 * 3600
 
 # How long a valid answer keeps working while the cloud is unreachable is set by
-# the cloud, as the signed entitlement's expiry (60 days). Generous on purpose: a
-# site with a flaky uplink, or one kept off the internet after setup, must not
-# silently lose cameras. After that the add-on drops to the free tier — it never
-# stops.
+# the cloud, as the signed entitlement's expiry (30 days). A site with a flaky
+# uplink must not silently lose cameras; after that the add-on drops to the free
+# tier — it never stops.
+
+# A lease is not believed if the clock reads earlier than a lease already seen
+# was issued, minus this slack for an honest clock correction. Winding the clock
+# back would otherwise keep an expired lease alive for ever.
+CLOCK_SLACK_SECONDS = 24 * 3600
 
 FREE_TIER_MAX_CAMERAS = 1
 
@@ -114,9 +120,28 @@ def verify(entitlement: dict | None, this_install: str) -> dict | None:
         return None
     if claims.get("v") != 1 or claims.get("install_id") != this_install:
         return None
-    if claims.get("exp", 0) <= time.time():
+    now = time.time()
+    if claims.get("exp", 0) <= now:
+        return None
+    if claims.get("iat", 0) > now + CLOCK_SLACK_SECONDS:
+        # Issued "in the future": this machine's clock was turned back.
         return None
     return claims
+
+
+def _signed_claims(entitlement: dict | None, this_install: str) -> dict | None:
+    """The claims of a correctly signed lease for this installation, expired or
+    not. Used only to read the lease number back to the cloud."""
+    if not entitlement:
+        return None
+    try:
+        payload = base64.b64decode(entitlement["payload"])
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(LICENCE_PUBLIC_KEY)).verify(
+            base64.b64decode(entitlement["signature"]), payload)
+        claims = json.loads(payload)
+    except (InvalidSignature, KeyError, TypeError, ValueError):
+        return None
+    return claims if claims.get("install_id") == this_install else None
 
 
 def _granted(claims: dict, reason: str) -> dict:
@@ -144,12 +169,19 @@ def _write_cache(payload: dict) -> None:
         logger.warning(f"could not cache licence result: {exc}")
 
 
-def _check_cloud(key: str, this_install: str, addon_version: str | None) -> dict | None:
-    """Ask the cloud. Returns None if it could not be reached."""
+def _check_cloud(key: str, this_install: str, addon_version: str | None,
+                 lease_seq: int | None = None, cameras_in_use: int | None = None) -> dict | None:
+    """Ask the cloud. Returns None if it could not be reached.
+
+    `lease_seq` is the sequence number of the lease this installation holds;
+    the cloud uses it to tell this machine from a copy of it."""
+    body = {"licence_key": key, "install_id": this_install, "addon_version": addon_version}
+    if lease_seq is not None:
+        body["lease_seq"] = lease_seq
+    if cameras_in_use is not None:
+        body["cameras_in_use"] = cameras_in_use
     try:
-        r = httpx.post(f"{CLOUD_URL}/licence/validate",
-                       json={"licence_key": key, "install_id": this_install,
-                             "addon_version": addon_version}, timeout=10.0)
+        r = httpx.post(f"{CLOUD_URL}/licence/validate", json=body, timeout=10.0)
         if r.status_code != 200:
             logger.warning(f"licence check returned HTTP {r.status_code}")
             return None
@@ -160,7 +192,8 @@ def _check_cloud(key: str, this_install: str, addon_version: str | None) -> dict
         return None
 
 
-def resolve(licence_key: str, addon_version: str | None = None) -> dict:
+def resolve(licence_key: str, addon_version: str | None = None,
+            cameras_in_use: int | None = None) -> dict:
     """Decide what this install is entitled to.
 
     Returns a dict with `valid`, `plan`, `max_cameras` (None = unlimited) and a
@@ -189,7 +222,13 @@ def resolve(licence_key: str, addon_version: str | None = None) -> dict:
             return _free(cache.get("reason") or "licence not valid")
         # Says valid but the signature does not hold up: ask the cloud again.
 
-    result = _check_cloud(key, this_install, addon_version)
+    # The lease number comes from the last SIGNED lease, even an expired one:
+    # it identifies this machine's place in the chain, and a forged cache file
+    # cannot claim a later place because it cannot be signed.
+    held = _signed_claims(cache.get("entitlement") if cache else None, this_install)
+    result = _check_cloud(key, this_install, addon_version,
+                          lease_seq=held.get("seq") if held else None,
+                          cameras_in_use=cameras_in_use)
 
     if result is None:
         # Cloud unreachable. Keep honouring a signed answer for this key until

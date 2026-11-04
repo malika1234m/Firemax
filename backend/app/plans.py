@@ -1,76 +1,120 @@
 """DB-backed plan catalog.
 
-Plan prices, limits, and feature lists used to live hardcoded in the backend
-and frontend. They now live in a `plans` collection so the FiremeX staff can
-edit them from the platform console. Defaults below seed the collection on
-first run; get_plan_limits() falls back to them if the DB has no row yet (e.g.
-in tests, which don't run the startup seed).
+FiremeX is sold by the camera, because a camera is what the customer gets value
+from: each one is a room that is watched for fire. Home Assistant installations
+are not a selling unit — one subscription licenses one installation, and the
+camera count travels inside the signed licence that installation receives.
+
+    free     1 camera, forever. Where a trial or a lapsed subscription lands.
+    trial    14 days, 4 cameras, no card. Not purchasable.
+    starter  "Home": a flat bundle of 4 cameras.
+    pro      "Pro": priced per camera, 5 to 64, with a bigger team.
+
+Every paid plan has a monthly and a yearly price; a year costs ten months.
+
+Plans live in a `plans` collection so FiremeX staff can edit labels, prices,
+team sizes and features from the platform console. Defaults below seed the
+collection; get_plan() falls back to them when the DB has no row (e.g. in tests,
+which do not run the startup seed).
 """
 from app.database import get_db
-from app.models import PLAN_LIMITS
 
-# plan_id -> full catalog entry. Trial is free and not purchasable.
+# Bumped when the catalog's SHAPE changes. Rows written under an older version
+# describe plans that no longer exist (the 2026 install-based plans) and are
+# replaced, not merged — merging would keep a price for a unit we no longer sell.
+CATALOG_VERSION = 2
+
+TRIAL_DAYS = 14
+
 DEFAULT_PLANS = {
+    "free": {
+        "plan_id": "free", "label": "Free", "order": 0, "purchasable": False,
+        "price_month_usd": 0, "price_year_usd": 0, "per_camera": False,
+        "cameras": 1, "min_cameras": 1, "max_cameras": 1,
+        "max_users": 1, "max_installs": 1,
+        "features": ["1 camera, free for good", "Fire, smoke and small-flame detection",
+                     "Runs fully local, works offline"],
+    },
     "trial": {
-        "plan_id": "trial", "label": "Trial", "price_usd": 0, "order": 0,
-        "max_cameras": PLAN_LIMITS["trial"]["max_cameras"],
-        "max_users": PLAN_LIMITS["trial"]["max_users"],
-        "features": ["Every camera in one Home Assistant", "Fire, smoke and small-flame detection", "Runs fully local, works offline"],
-        "stripe_lookup_key": None,
+        "plan_id": "trial", "label": "Free trial", "order": 1, "purchasable": False,
+        "price_month_usd": 0, "price_year_usd": 0, "per_camera": False,
+        "cameras": 4, "min_cameras": 4, "max_cameras": 4,
+        "max_users": 3, "max_installs": 1,
+        "features": [f"{TRIAL_DAYS} days, no card needed", "Up to 4 cameras",
+                     "Everything in Home"],
     },
     "starter": {
-        "plan_id": "starter", "label": "Starter", "price_usd": 49, "order": 1,
-        "max_cameras": PLAN_LIMITS["starter"]["max_cameras"],
-        "max_users": PLAN_LIMITS["starter"]["max_users"],
-        "features": ["Everything in Trial", "1 Home Assistant installation", "Email support"],
-        "stripe_lookup_key": "firemex_starter_monthly",
+        "plan_id": "starter", "label": "Home", "order": 2, "purchasable": True,
+        "price_month_usd": 9, "price_year_usd": 90, "per_camera": False,
+        "cameras": 4, "min_cameras": 4, "max_cameras": 4,
+        "max_users": 3, "max_installs": 1,
+        "features": ["Up to 4 cameras", "Phone alerts through Home Assistant",
+                     "Detection history with photos", "Email support"],
     },
     "pro": {
-        "plan_id": "pro", "label": "Pro", "price_usd": 199, "order": 2,
-        "max_cameras": PLAN_LIMITS["pro"]["max_cameras"],
-        "max_users": PLAN_LIMITS["pro"]["max_users"],
-        "features": ["Everything in Starter", "Up to 5 Home Assistant installations", "Priority support"],
-        "stripe_lookup_key": "firemex_pro_monthly",
+        "plan_id": "pro", "label": "Pro", "order": 3, "purchasable": True,
+        "price_month_usd": 3, "price_year_usd": 30, "per_camera": True,
+        "cameras": 5, "min_cameras": 5, "max_cameras": 64,
+        "max_users": 25, "max_installs": 1,
+        "features": ["5 to 64 cameras, pay for what you use", "Everything in Home",
+                     "Up to 25 team members", "Priority support"],
     },
 }
 
-EDITABLE_FIELDS = {"label", "price_usd", "max_cameras", "max_users", "features"}
+INTERVALS = ("month", "year")
 
-# Feature lists earlier releases seeded, which described the old cloud camera
-# dashboard. A plan still carrying exactly one of these was never edited by
-# staff, so it is moved to the current wording; an edited list is left alone.
-OLD_DEFAULT_FEATURES = {
-    "trial": ["Full detection pipeline", "Live feed & incident review", "Email alerts"],
-    "starter": ["Everything in Trial", "SMS + call to authorities", "Shift scheduling"],
-    "pro": ["Everything in Starter", "Priority detection processing", "Dedicated support"],
-}
+EDITABLE_FIELDS = {"label", "price_month_usd", "price_year_usd", "max_users", "features"}
+
+
+def _with_legacy_fields(plan: dict) -> dict:
+    """Older code paths (the retired cloud-camera routes, the staff console's
+    revenue estimate) read `price_usd` and `max_cameras`. Kept derived, never
+    stored separately, so the two cannot drift apart."""
+    return {**plan, "price_usd": plan.get("price_month_usd", 0)}
 
 
 async def seed_plans():
-    """Idempotently insert any missing default plans. Never overwrites edits."""
+    """Insert missing default plans and replace rows from an older catalog.
+    Never overwrites staff edits made under the current catalog."""
     db = get_db()
     for plan_id, doc in DEFAULT_PLANS.items():
-        await db.plans.update_one({"plan_id": plan_id}, {"$setOnInsert": doc}, upsert=True)
+        row = {**doc, "catalog_version": CATALOG_VERSION}
         await db.plans.update_one(
-            {"plan_id": plan_id, "features": OLD_DEFAULT_FEATURES[plan_id]},
-            {"$set": {"features": doc["features"]}})
+            {"plan_id": plan_id, "catalog_version": {"$ne": CATALOG_VERSION}},
+            {"$set": row}, upsert=False)
+        await db.plans.update_one({"plan_id": plan_id}, {"$setOnInsert": row}, upsert=True)
 
 
 async def list_plans() -> list[dict]:
     db = get_db()
-    plans = await db.plans.find({}, {"_id": 0}).sort("order", 1).to_list(50)
-    if not plans:
-        # Seed on first read so the catalog exists even if the startup seed
-        # didn't run (e.g. in tests), then re-query.
+    plans = await db.plans.find({"catalog_version": CATALOG_VERSION}, {"_id": 0}).sort("order", 1).to_list(50)
+    if len(plans) < len(DEFAULT_PLANS):
+        # First read, or rows from an older catalog: seed, then re-query.
         await seed_plans()
-        plans = await db.plans.find({}, {"_id": 0}).sort("order", 1).to_list(50)
-    return plans
+        plans = await db.plans.find({"catalog_version": CATALOG_VERSION}, {"_id": 0}).sort("order", 1).to_list(50)
+    return [_with_legacy_fields(p) for p in plans]
 
 
 async def get_plan(plan_id: str) -> dict:
     db = get_db()
-    plan = await db.plans.find_one({"plan_id": plan_id}, {"_id": 0})
-    return plan or DEFAULT_PLANS.get(plan_id, DEFAULT_PLANS["trial"])
+    plan = await db.plans.find_one({"plan_id": plan_id, "catalog_version": CATALOG_VERSION}, {"_id": 0})
+    return _with_legacy_fields(plan or DEFAULT_PLANS.get(plan_id, DEFAULT_PLANS["free"]))
+
+
+def price_cents(plan: dict, interval: str) -> int:
+    return int(round(plan[f"price_{interval}_usd"] * 100))
+
+
+def clamp_cameras(plan: dict, cameras) -> int:
+    """The number of cameras a subscription to `plan` covers. Flat plans ignore
+    the request; per-camera plans keep it inside the plan's range."""
+    if not plan.get("per_camera"):
+        return plan["cameras"]
+    try:
+        n = int(cameras)
+    except (TypeError, ValueError):
+        n = plan["min_cameras"]
+    return max(plan["min_cameras"], min(plan["max_cameras"], n))
 
 
 async def get_plan_limits(plan_id: str) -> dict:

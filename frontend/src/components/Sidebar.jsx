@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Home, KeyRound, CreditCard, Settings, LifeBuoy, LogOut } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useOrganization } from '../context/OrganizationContext'
@@ -62,10 +62,16 @@ export default function Sidebar({ mobileOpen = false, onClose = () => {} }) {
       {org && (
         <div className="px-5 pb-3 -mt-1">
           <p className="text-[11px] text-slate-400 font-medium truncate">{org.name}</p>
-          {org.plan === 'trial' && trialDaysLeft !== null && (
-            <p className={`text-[10px] mt-0.5 ${trialDaysLeft <= 3 ? 'text-hazard' : 'text-slate-600'}`}>
-              {trialDaysLeft > 0 ? `${trialDaysLeft}d left in trial` : 'Trial ended'}
-            </p>
+          {org.subscription_status === 'trialing' && trialDaysLeft !== null && (
+            <Link to="/billing" onClick={onClose}
+                  className={`block text-[11px] mt-0.5 hover:underline ${trialDaysLeft <= 3 ? 'text-warn' : 'text-slate-400'}`}>
+              {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} left in trial
+            </Link>
+          )}
+          {(org.subscription_status === 'trial_ended' || org.subscription_status === 'past_due') && (
+            <Link to="/billing" onClick={onClose} className="block text-[11px] mt-0.5 text-hazard hover:underline">
+              {org.subscription_status === 'past_due' ? 'Payment failed — update card' : 'Trial ended — choose a plan'}
+            </Link>
           )}
         </div>
       )}

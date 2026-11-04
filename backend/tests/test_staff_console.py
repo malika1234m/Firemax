@@ -20,27 +20,28 @@ async def _platform_login(client):
 async def test_platform_plans_list_and_edit(client):
     await _platform_login(client)
     plans = (await client.get("/platform/plans")).json()["plans"]
-    assert {p["plan_id"] for p in plans} == {"trial", "starter", "pro"}
+    assert {p["plan_id"] for p in plans} == {"free", "trial", "starter", "pro"}
 
-    res = await client.patch("/platform/plans/starter", json={"price_usd": 79, "max_cameras": 8, "features": ["A", "B"]})
+    res = await client.patch("/platform/plans/starter",
+                             json={"price_month_usd": 12, "price_year_usd": 120, "features": ["A", "B"]})
     assert res.status_code == 200
     body = res.json()
-    assert body["price_usd"] == 79 and body["max_cameras"] == 8 and body["features"] == ["A", "B"]
+    assert (body["price_month_usd"], body["price_year_usd"], body["features"]) == (12, 120, ["A", "B"])
 
 
 async def test_plan_edit_reflects_in_customer_billing(client, client2):
-    # Staff raises the Starter camera limit; a customer's billing status shows it.
+    # Staff changes the Home price; a customer's billing page shows it.
     await _platform_login(client)
-    await client.patch("/platform/plans/starter", json={"max_cameras": 9})
+    await client.patch("/platform/plans/starter", json={"price_month_usd": 11})
 
     await signup(client2, org_name="Cust Co", email="cust@firemex.io")
     status = (await client2.get("/billing/status")).json()
-    assert status["plans"]["starter"]["max_cameras"] == 9
+    assert status["plans"]["starter"]["price_month_usd"] == 11
 
 
 async def test_customer_cannot_edit_plans(client):
     await signup(client)
-    assert (await client.patch("/platform/plans/starter", json={"price_usd": 1})).status_code == 401
+    assert (await client.patch("/platform/plans/starter", json={"price_month_usd": 1})).status_code == 401
 
 
 # ── Billing / pipelines ──────────────────────────────────────────────────────

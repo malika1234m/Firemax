@@ -37,8 +37,8 @@ async def test_admin_gets_a_key_minted_on_first_request(client):
     assert res.status_code == 200
     body = res.json()
     assert body["licence_key"].startswith("fmx_")
-    # A fresh org is trialing, which is an entitled state.
-    assert body["max_cameras"] is None
+    # A fresh org is on the trial: entitled, with the trial's 4 cameras.
+    assert body["entitled"] is True and body["max_cameras"] == 4
 
 
 async def test_key_is_stable_across_requests(client):
@@ -46,7 +46,7 @@ async def test_key_is_stable_across_requests(client):
     assert await _key(client) == await _key(client)
 
 
-async def test_valid_key_unlocks_unlimited_cameras(client):
+async def test_valid_key_unlocks_the_plans_cameras(client):
     await signup(client)
     key = await _key(client)
 
@@ -54,12 +54,12 @@ async def test_valid_key_unlocks_unlimited_cameras(client):
     assert res.status_code == 200
     body = res.json()
     assert body["valid"] is True
-    assert body["max_cameras"] is None          # unlimited
+    assert body["max_cameras"] == 4             # the trial's cameras
     assert body["organization"] == "Acme Fire Safety"
 
     claims = _claims(body["entitlement"])
     assert claims["install_id"] == INSTALL_A
-    assert claims["max_cameras"] is None
+    assert claims["max_cameras"] == 4           # signed, so it cannot be raised locally
     assert claims["exp"] > claims["iat"]
 
 
@@ -232,18 +232,15 @@ async def test_same_installation_twice_at_once_is_not_an_error(client):
     assert all(r.status_code == 200 and r.json()["valid"] for r in answers)
 
 
-async def test_downgrade_takes_seats_back_from_extra_installations(client, db):
-    """Pro allows 5 installations, Starter 1. After a downgrade only the oldest
-    installation keeps its licence — the others are refused on their next check."""
+async def test_every_plan_licenses_one_home_assistant(client, db):
+    """One subscription, one Home Assistant — Pro included. A second machine
+    with the same key is refused until the owner removes the first."""
     await signup(client)
     key = await _key(client)
     await db.organizations.update_one({"licence_key": key},
-                                      {"$set": {"plan": "pro", "subscription_status": "active"}})
-    for i in (INSTALL_A, INSTALL_B):
-        assert (await client.post("/licence/validate", json=_check(key, i))).json()["valid"] is True
-
-    await db.organizations.update_one({"licence_key": key}, {"$set": {"plan": "starter"}})
-    assert (await client.post("/licence/validate", json=_check(key, INSTALL_A))).json()["valid"] is True
+                                      {"$set": {"plan": "pro", "subscription_status": "active", "cameras": 12}})
+    body = (await client.post("/licence/validate", json=_check(key, INSTALL_A))).json()
+    assert body["valid"] is True and body["max_cameras"] == 12
     body = (await client.post("/licence/validate", json=_check(key, INSTALL_B))).json()
     assert body["valid"] is False and "already active" in body["reason"]
 

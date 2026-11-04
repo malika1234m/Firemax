@@ -73,6 +73,14 @@ export function timeAgo(date) {
  *  customers know to update. Keep in step with addon/firemex-local/CHANGELOG.md. */
 export const WHATS_NEW = [
   {
+    version: '1.7.0',
+    items: [
+      'Your licence now carries how many cameras your plan covers, and is renewed every day.',
+      'The website shows how many cameras the add-on is watching.',
+      'A copy of the add-on on a second machine can no longer share your licence.',
+    ],
+  },
+  {
     version: '1.6.0',
     items: [
       'New fire model (model-v5) that recognises small flames — a lighter or candle is seen as a small flame and never raises an alarm.',

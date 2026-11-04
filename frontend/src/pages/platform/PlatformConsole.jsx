@@ -212,14 +212,18 @@ function PlanPicker({ tenant, plans, onChanged }) {
           {plans.length === 0 && <option value={tenant.plan}>{tenant.plan}</option>}
           {plans.map(p => (
             <option key={p.plan_id} value={p.plan_id}>
-              {p.label}{p.price_usd ? ` — $${p.price_usd}/mo` : ' — free'}
+              {p.label}{p.price_month_usd ? ` — $${p.price_month_usd}${p.per_camera ? '/camera' : ''}/mo` : ' — free'}
             </option>
           ))}
         </select>
         {saving && <span className="text-[11px] text-slate-500">saving…</span>}
         {saved  && <span className="flex items-center gap-1 text-[11px] text-safe"><CheckCircle2 size={12} /> saved</span>}
       </div>
-      <p className="text-[10.5px] text-slate-600">{tenant.subscription_status}</p>
+      <p className="text-[10.5px] text-slate-500">
+        {tenant.subscription_status} · {tenant.cameras} camera{tenant.cameras === 1 ? '' : 's'}
+        {tenant.billing_interval && ` · ${tenant.billing_interval}ly`}
+      </p>
+      {tenant.clone_suspected && <p className="text-[10.5px] text-warn">Installation copied to a second machine</p>}
       {error && <p className="text-[10.5px] text-hazard">{error}</p>}
       {warnings.map((w, i) => (
         <p key={i} className="text-[10.5px] text-hazard leading-snug max-w-[260px]">{w}</p>
@@ -251,7 +255,10 @@ function BillingSection() {
                 : c.subscription_status === 'past_due' ? <Badge tone="hazard" icon={AlertTriangle}>Past due</Badge>
                 : <Badge tone="neutral">{c.subscription_status}</Badge>}
             </td>
-            <td className="px-4 py-3 text-slate-300">{c.price_usd ? `$${c.price_usd}/mo` : '—'}</td>
+            <td className="px-4 py-3 text-slate-300">
+              {c.price_usd ? `$${c.price_usd}/mo` : '—'}
+              <span className="block text-[11px] text-slate-500">{c.cameras} cameras{c.billing_interval === 'year' ? ' · yearly' : ''}</span>
+            </td>
             <td className="px-4 py-3 text-slate-400">{c.has_payment_method ? 'On file' : '—'}</td>
             <td className="px-4 py-3 text-slate-500">{(c.current_period_end || c.trial_ends_at || '').slice(0, 10) || '—'}</td>
           </tr>
@@ -268,7 +275,7 @@ function PlansSection() {
   useEffect(() => { load() }, [])
   if (!plans) return <Loading />
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
       {plans.map(p => <PlanCard key={p.plan_id} plan={p} onSaved={load} />)}
     </div>
   )
@@ -276,8 +283,8 @@ function PlansSection() {
 
 function PlanCard({ plan, onSaved }) {
   const [label, setLabel] = useState(plan.label)
-  const [price, setPrice] = useState(plan.price_usd)
-  const [cams]           = useState(plan.max_cameras)
+  const [price, setPrice] = useState(plan.price_month_usd)
+  const [yearly, setYearly] = useState(plan.price_year_usd)
   const [seats, setSeats] = useState(plan.max_users)
   const [features, setFeatures] = useState((plan.features || []).join('\n'))
   const [saving, setSaving] = useState(false)
@@ -289,7 +296,7 @@ function PlanCard({ plan, onSaved }) {
       await apiJson(`/platform/plans/${plan.plan_id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          label, price_usd: Number(price), max_cameras: Number(cams), max_users: Number(seats),
+          label, price_month_usd: Number(price), price_year_usd: Number(yearly), max_users: Number(seats),
           features: features.split('\n').map(f => f.trim()).filter(Boolean),
         }),
       })
@@ -302,13 +309,18 @@ function PlanCard({ plan, onSaved }) {
     <div className="glass-card border border-white/[0.07] rounded-xl p-5 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-mono uppercase tracking-wider text-slate-600">{plan.plan_id}</span>
-        {plan.plan_id === 'trial' && <span className="text-[10px] text-slate-600">free</span>}
+        <span className="text-[10px] text-slate-500">
+          {plan.per_camera ? `per camera · ${plan.min_cameras}–${plan.max_cameras}` : `${plan.cameras} camera${plan.cameras === 1 ? '' : 's'}`}
+        </span>
       </div>
       <Field label="Label"><input className="field" value={label} onChange={e => setLabel(e.target.value)} /></Field>
-      {/* No camera limit here: a paid add-on watches every camera, so the
-          plan's limits are installations (fixed per plan) and team members. */}
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="Price $/mo"><input type="number" className="field" value={price} onChange={e => setPrice(e.target.value)} disabled={plan.plan_id === 'trial'} /></Field>
+      {/* Camera counts are part of what a plan IS (and what Stripe bills as a
+          quantity), so they are set in code; prices, team size and wording are
+          editable. A changed price becomes a new Stripe price for new
+          customers — existing subscribers keep the price they agreed to. */}
+      <div className="grid grid-cols-3 gap-2">
+        <Field label={plan.per_camera ? '$/camera/mo' : 'Price $/mo'}><input type="number" step="0.01" className="field" value={price} onChange={e => setPrice(e.target.value)} disabled={!plan.purchasable} /></Field>
+        <Field label={plan.per_camera ? '$/camera/yr' : 'Price $/yr'}><input type="number" step="0.01" className="field" value={yearly} onChange={e => setYearly(e.target.value)} disabled={!plan.purchasable} /></Field>
         <Field label="Users"><input type="number" className="field" value={seats} onChange={e => setSeats(e.target.value)} /></Field>
       </div>
       <Field label="Features (one per line)">
@@ -338,14 +350,19 @@ function InstallationsSection() {
         <InfraCard icon={Home} label="Installations" neutral detail={`${data.total} in use`} />
         <InfraCard icon={Activity} label="Checked in (26h)" ok={data.checked_in === data.total} detail={`${data.checked_in} / ${data.total}`} />
       </div>
-      <Table head={['Company', 'Installation', 'Add-on', 'Connected', 'Last check-in', 'Status']}>
+      <Table head={['Company', 'Installation', 'Add-on', 'Cameras', 'Last check-in', 'Sharing check', 'Status']}>
         {data.installations.map(i => (
           <tr key={i.install_id} className="border-b border-white/[0.04] last:border-0 text-[13px]">
             <td className="px-4 py-3 text-slate-200 font-medium">{i.org_name}</td>
             <td className="px-4 py-3 text-slate-500 font-mono text-[11.5px]">{i.install_id.slice(0, 12)}…</td>
             <td className="px-4 py-3 text-slate-300 font-mono">{i.addon_version || '?'}</td>
-            <td className="px-4 py-3 text-slate-400">{new Date(i.first_seen).toLocaleDateString()}</td>
+            <td className="px-4 py-3 text-slate-300">{i.cameras_in_use ?? '—'}</td>
             <td className="px-4 py-3 text-slate-400">{new Date(i.last_seen).toLocaleString()}</td>
+            <td className="px-4 py-3">
+              {i.clone_suspected ? <Badge tone="hazard" icon={AlertTriangle}>Copied</Badge>
+                : i.ip_count_7d > 3 ? <Badge tone="neutral">{i.ip_count_7d} addresses / 7d</Badge>
+                : <span className="text-slate-500 text-[12px]">OK</span>}
+            </td>
             <td className="px-4 py-3">{i.checked_in ? <Badge tone="safe" icon={CheckCircle2}>Checking in</Badge> : <Badge tone="hazard" icon={AlertTriangle}>Quiet</Badge>}</td>
           </tr>
         ))}

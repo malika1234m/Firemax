@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.7.0
+
+- **Plans are now by camera.** The licence carries the number of cameras your
+  plan covers (trial and Home: 4, Pro: what you choose), signed by FiremeX so it
+  cannot be changed on the machine. Extra cameras are listed in the log.
+- **The licence is renewed daily** (was weekly), and works offline for 30 days
+  (was 60) before dropping to one camera.
+- **A copied installation is refused.** Each renewal carries a lease number;
+  two machines running the same add-on data are told apart and only one keeps
+  the licence. The owner sees it in their account activity.
+- The add-on reports how many cameras it is watching, shown on the website.
+- A licence is not believed if the clock has been turned back.
+
 ## 1.6.0
 
 - **New fire model (model-v5) that knows small flames.** model-v4 fine-tuned

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
-  Bell, ShieldCheck, Home, ArrowRight, CheckCircle2, MonitorPlay, Boxes, Server, Factory, HeartPulse, GraduationCap, ShoppingBag, Flame, ScanEye, Video, LayoutDashboard, Camera, Sparkles, Rocket, Crown, Lock, Store, ExternalLink,
+  Bell, ShieldCheck, Home, ArrowRight, CheckCircle2, MonitorPlay, Boxes, Server, Factory, HeartPulse, GraduationCap, ShoppingBag, Flame, ScanEye, Video, LayoutDashboard, Camera, Lock, Store, ExternalLink,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import PlanPicker, { IntervalToggle } from '../components/PlanPicker'
 import { OPEN_ADDON_URL, WHATS_NEW } from '../lib/homeAssistant'
 import landingOps from '../assets/landing-ops.png'
 import logo from '../assets/logo.png'
 
-const PLAN_ICON = { trial: Sparkles, starter: Rocket, pro: Crown }
 
 const INDUSTRIES = [
   { icon: Boxes,         label: 'Warehousing' },
@@ -159,79 +159,43 @@ function ProductPreview() {
 }
 
 function PricingSection() {
-  const [plans, setPlans] = useState([])
+  const navigate = useNavigate()
+  const [plans, setPlans] = useState(null)
+  const [interval, setPeriod] = useState('year')
+  const [cameras, setCameras] = useState(8)
   useEffect(() => {
-    apiFetch('/billing/plans').then(r => r.ok ? r.json() : null).then(d => d && setPlans(d.plans)).catch(() => {})
+    apiFetch('/billing/plans').then(r => r.ok ? r.json() : null)
+      .then(d => d && setPlans(Object.fromEntries(d.plans.map(p => [p.plan_id, p])))).catch(() => {})
   }, [])
 
   return (
     <section id="pricing" className="border-t border-white/[0.06]">
-      <div className="max-w-7xl mx-auto px-6 sm:px-10 py-24">
-        <div className="text-center max-w-xl mx-auto mb-14">
+      <div className="max-w-6xl mx-auto px-6 sm:px-10 py-24">
+        <div className="text-center max-w-xl mx-auto mb-10">
           <span className="inline-flex items-center gap-2 text-[11px] font-medium tracking-[0.08em] uppercase text-ember bg-ember/10 border border-ember/25 rounded-full px-3 py-1.5">
             Pricing
           </span>
           <h2 className="font-raj font-extrabold text-[32px] sm:text-[40px] mt-5 leading-[1.05]">
-            Simple, honest pricing
+            Pay for the cameras you watch
           </h2>
-          <p className="text-slate-500 text-[14px] mt-3">
-            Every camera is included. You pay for how many Home Assistants you run, and try it free for
-            14 days first. Not sure which fits?{' '}
+          <p className="text-slate-400 text-[14.5px] mt-3 leading-relaxed">
+            Every account starts with a 14-day trial on up to 4 cameras, no card needed. After that,
+            one camera stays free for good. Cancel any time, no fee. Not sure which fits?{' '}
             <Link to="/request-demo" className="text-ember hover:text-ember/80 font-medium">Talk to us</Link>.
           </p>
+          <div className="mt-6"><IntervalToggle interval={interval} onChange={setPeriod} /></div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-5xl mx-auto">
-          {plans.map(p => {
-            const Icon = PLAN_ICON[p.plan_id] ?? Sparkles
-            const isTrial = p.plan_id === 'trial'
-            const popular = p.plan_id === 'starter'
-            return (
-              <div key={p.plan_id}
-                   className={`glass-card rounded-xl p-6 flex flex-col gap-4 relative border
-                     ${popular ? 'border-ember/40' : 'border-white/[0.07]'}`}>
-                {popular && (
-                  <span className="absolute -top-2.5 left-6 text-[9px] font-raj font-bold tracking-widest uppercase bg-ember text-white px-2 py-0.5 rounded-full">
-                    Most Popular
-                  </span>
-                )}
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0
-                    ${popular ? 'bg-ember/15 text-ember' : 'bg-white/[0.04] text-slate-400'}`}>
-                    <Icon size={16} />
-                  </div>
-                  <div>
-                    <p className="font-raj font-semibold text-[15px] text-white capitalize">{p.label}</p>
-                    <p className="font-raj font-bold text-[24px] text-white leading-none mt-0.5">
-                      {isTrial ? 'Free' : `$${p.price_usd}`}
-                      {!isTrial && <span className="text-[12px] text-slate-600 font-normal">/mo</span>}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-[12px] text-slate-500 flex items-center gap-3 pb-3 border-b border-white/[0.06]">
-                  <span>{p.max_installs} Home Assistant install{p.max_installs === 1 ? '' : 's'}</span>
-                  <span className="w-1 h-1 rounded-full bg-slate-700" />
-                  <span>unlimited cameras</span>
-                </div>
-
-                <ul className="space-y-2 text-[13px] text-slate-400 flex-1">
-                  {p.features.map(f => (
-                    <li key={f} className="flex items-start gap-2">
-                      <CheckCircle2 size={14} className="text-ember shrink-0 mt-0.5" /> {f}
-                    </li>
-                  ))}
-                </ul>
-
-                <Link to="/signup"
-                      className={`w-full text-center text-[13px] font-semibold py-2.5 rounded-lg transition-colors
-                        ${popular ? 'bg-ember text-white hover:bg-ember-dark' : 'border border-white/15 text-white hover:bg-white/5'}`}>
-                  {isTrial ? 'Start free' : `Choose ${p.label}`}
-                </Link>
-              </div>
-            )
-          })}
-        </div>
+        {plans ? (
+          <PlanPicker plans={plans} interval={interval} cameras={cameras} onCameras={setCameras}
+                      actionFor={(p) => ({ kind: p.plan_id === 'starter' ? 'primary' : 'secondary',
+                                           label: p.plan_id === 'free' ? 'Start the free trial' : `Try ${p.label} free` })}
+                      onChoose={() => navigate('/signup')} />
+        ) : (
+          <div className="grid md:grid-cols-3 gap-4">
+            {[0, 1, 2].map(i => <div key={i} className="h-80 rounded-xl border border-white/[0.06] bg-white/[0.02] animate-pulse" />)}
+          </div>
+        )}
       </div>
     </section>
   )

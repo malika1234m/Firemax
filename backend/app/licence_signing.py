@@ -31,11 +31,12 @@ from app.config import settings
 logger = logging.getLogger("licence")
 
 # How long a signed entitlement stays valid without the add-on reaching us.
-# This IS the add-on's offline grace: a site whose uplink is down, or that is
-# deliberately kept offline after setup, keeps its cameras this long. The add-on
-# re-checks weekly when it can, so a revoked or cancelled licence is noticed
-# within a week on any machine that is online.
-ENTITLEMENT_SECONDS = 60 * 24 * 3600
+# This IS the add-on's offline grace: a site whose uplink is down keeps its paid
+# cameras this long, then drops to one camera — never zero. 30 days, down from
+# 60: it is also how long a copy cut off from us keeps a shared licence. The
+# add-on re-checks daily (1.7.0+; weekly before), so a cancelled or revoked
+# licence is noticed within a day on any machine that is online.
+ENTITLEMENT_SECONDS = 30 * 24 * 3600
 
 _key: Ed25519PrivateKey | None = None
 
@@ -61,7 +62,7 @@ def public_key_b64() -> str:
 
 
 def sign_entitlement(install_id: str, plan: str, max_cameras: int | None,
-                     organization: str | None) -> dict:
+                     organization: str | None, seq: int = 0) -> dict:
     """The signed part of a licence answer: {payload, signature}, both base64.
 
     The payload is signed as exact bytes and verified as the same bytes, so no
@@ -74,6 +75,9 @@ def sign_entitlement(install_id: str, plan: str, max_cameras: int | None,
         "max_cameras": max_cameras,
         "organization": organization,
         "iat": now,
+        # Lease sequence number: the add-on sends it back on its next check so
+        # two machines sharing one installation id can be told apart.
+        "seq": seq,
         "exp": now + ENTITLEMENT_SECONDS,
     }, separators=(",", ":")).encode()
     return {

@@ -7,7 +7,7 @@ the Supervisor renders that to /data/options.json.
 import json
 import os
 
-ADDON_VERSION = "1.6.0"
+ADDON_VERSION = "1.7.0"
 
 # The model this release ships — must match model_url/model_sha256 in
 # addon/firemex-local/config.yaml (a test checks it).

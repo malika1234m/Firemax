@@ -53,10 +53,17 @@ class Organization(BaseModel):
     # Stripe billing state
     stripe_customer_id: Optional[str] = None
     stripe_subscription_id: Optional[str] = None
-    plan: str = "trial"                      # "trial" | "starter" | "pro"
-    subscription_status: str = "trialing"    # trialing | active | past_due | canceled | incomplete
+    plan: str = "trial"                      # "free" | "trial" | "starter" | "pro"
+    # trialing | trial_ended | active | past_due | canceled | incomplete
+    subscription_status: str = "trialing"
     trial_ends_at: Optional[UTCDateTime] = None
     current_period_end: Optional[UTCDateTime] = None
+    billing_interval: Optional[str] = None   # "month" | "year" once paying
+    # Cameras bought on a per-camera plan (Stripe quantity). None on flat plans.
+    cameras: Optional[int] = None
+    cancel_at_period_end: bool = False
+    # Set when a payment fails: paid cameras are kept until then (subscription.py).
+    grace_until: Optional[UTCDateTime] = None
 
     # Detection tuning — applied live to every camera in this org (see
     # detection/pipeline.py). confidence_threshold is the bar a detection
@@ -112,6 +119,10 @@ class OrganizationPublic(BaseModel):
     subscription_status: str
     trial_ends_at: Optional[UTCDateTime] = None
     current_period_end: Optional[UTCDateTime] = None
+    billing_interval: Optional[str] = None
+    cameras: Optional[int] = None
+    cancel_at_period_end: bool = False
+    grace_until: Optional[UTCDateTime] = None
     # "manual" when FiremeX staff set the plan by hand rather than it coming
     # from a payment provider. Exposed so the billing page can say "managed by
     # FiremeX" instead of showing an empty renewal date it will never have.
@@ -142,6 +153,12 @@ class LicenceCheck(BaseModel):
     # older than 1.3.0 still get a clear "please update" answer, not a 422.
     install_id: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9-]{16,64}$")
     addon_version: Optional[str] = Field(default=None, max_length=32)
+    # Sequence number of the last lease this installation received (1.7.0+).
+    # Two machines sharing one installation id — a copied /data folder or a
+    # restored backup running beside the original — present diverging numbers.
+    lease_seq: Optional[int] = Field(default=None, ge=0)
+    # Cameras the add-on is watching right now, shown to the owner.
+    cameras_in_use: Optional[int] = Field(default=None, ge=0, le=10000)
 
 
 class LicencePublic(BaseModel):
@@ -169,6 +186,9 @@ class LicenceActivationPublic(BaseModel):
     first_seen: UTCDateTime
     last_seen: UTCDateTime
     addon_version: Optional[str] = None
+    cameras_in_use: Optional[int] = None
+    # Set when this installation id was seen on two machines at once.
+    clone_suspected_at: Optional[UTCDateTime] = None
 
 
 class LicenceKeyPublic(BaseModel):
@@ -230,9 +250,12 @@ class OrganizationUpdate(BaseModel):
 # shown as a UI hint. Keys must match Organization.plan values and the
 # Stripe price lookup_keys used when bootstrapping products (see billing.py).
 PLAN_LIMITS = {
-    "trial":   {"max_cameras": 2,  "max_users": 3,   "max_installs": 1, "label": "Trial"},
-    "starter": {"max_cameras": 5,  "max_users": 10,  "max_installs": 1, "label": "Starter"},
-    "pro":     {"max_cameras": 50, "max_users": 100, "max_installs": 5, "label": "Pro"},
+    # Mirrors app/plans.py DEFAULT_PLANS for code that needs a label or team
+    # size without a database round trip. Cameras are granted by subscription.py.
+    "free":    {"max_cameras": 1,  "max_users": 1,  "max_installs": 1, "label": "Free"},
+    "trial":   {"max_cameras": 4,  "max_users": 3,  "max_installs": 1, "label": "Free trial"},
+    "starter": {"max_cameras": 4,  "max_users": 3,  "max_installs": 1, "label": "Home"},
+    "pro":     {"max_cameras": 64, "max_users": 25, "max_installs": 1, "label": "Pro"},
 }
 
 
@@ -392,13 +415,15 @@ class TenantPlanUpdate(BaseModel):
     # Defaults to "active" for a paid plan and "trialing" for the free one;
     # override only when you specifically need a different state.
     subscription_status: Optional[str] = None
+    # Cameras granted on a per-camera plan; ignored on flat plans.
+    cameras: Optional[int] = Field(None, ge=1, le=10000)
     note: Optional[str] = Field(None, max_length=280)
 
 
 class PlanUpdate(BaseModel):
     label: Optional[str] = Field(None, min_length=1)
-    price_usd: Optional[int] = Field(None, ge=0, le=100000)
-    max_cameras: Optional[int] = Field(None, ge=1, le=100000)
+    price_month_usd: Optional[float] = Field(None, ge=0, le=100000)
+    price_year_usd: Optional[float] = Field(None, ge=0, le=1000000)
     max_users: Optional[int] = Field(None, ge=1, le=100000)
     features: Optional[list[str]] = None
 

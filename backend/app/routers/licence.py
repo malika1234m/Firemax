@@ -22,23 +22,26 @@ reason a building stops being watched.
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pymongo.errors import DuplicateKeyError
 
-from app import account_events
+from app import account_events, subscription
 from app.database import get_db
 from app.licence_signing import ENTITLEMENT_SECONDS, sign_entitlement
-from app.models import (FREE_TIER_MAX_CAMERAS, PLAN_LIMITS, LicenceActivationPublic,
+from app.models import (PLAN_LIMITS, LicenceActivationPublic,
                         LicenceCheck, LicenceKeyPublic, LicencePublic, UserPublic)
 from app.rate_limit import rate_limiter
 from app.security import require_admin
 
 router = APIRouter(prefix="/licence", tags=["licence"])
 
-# Subscription states that entitle a customer to the paid tier. "trialing" is
-# included on purpose — a trial that cannot watch the customer's cameras proves
-# nothing and sells nothing.
-ENTITLED_STATUSES = {"trialing", "active"}
+# Two stale lease numbers inside this window mean two live copies. A backup
+# restored onto a new box after the old one died presents one stale number and
+# then carries on with the chain, so it is never refused.
+CLONE_WINDOW = timedelta(hours=48)
+
+# Public addresses remembered per installation, for staff review of sharing.
+IP_HISTORY = 10
 
 # Prefix makes a stray key recognisable in a log or a support ticket, so it can
 # be rotated rather than puzzled over.
@@ -73,20 +76,27 @@ async def _ensure_key(db, org: dict) -> str:
     return key
 
 
-def _key_public(key: str, org: dict) -> LicenceKeyPublic:
+async def _key_public(db, key: str, org: dict) -> LicenceKeyPublic:
+    org = await subscription.refresh(db, org)
     plan = org.get("plan", "trial")
-    entitled = org.get("subscription_status") in ENTITLED_STATUSES
     return LicenceKeyPublic(
         licence_key=key,
         plan=plan,
-        max_cameras=None if entitled else FREE_TIER_MAX_CAMERAS,
-        entitled=entitled,
+        max_cameras=await subscription.cameras_allowed(org),
+        entitled=subscription.state(org) != "free",
         max_installs=PLAN_LIMITS.get(plan, {}).get("max_installs", 1),
     )
 
 
+def _client_ip(request: Request) -> str:
+    # Railway terminates TLS in front of the app; the first forwarded address
+    # is the caller's. Only used for review, so a spoofed header costs nothing.
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (fwd.split(",")[0].strip() or (request.client.host if request.client else "")) [:64]
+
+
 @router.post("/validate", response_model=LicencePublic)
-async def validate_licence(body: LicenceCheck,
+async def validate_licence(body: LicenceCheck, request: Request,
                            _rl=Depends(rate_limiter(30, 300))):
     """Check a licence key for one installation. Public — add-ons in the field
     have no session.
@@ -108,10 +118,12 @@ async def validate_licence(body: LicenceCheck,
     if not org:
         return LicencePublic(valid=False, reason="Licence key not recognised")
 
-    if org.get("subscription_status") not in ENTITLED_STATUSES:
-        return LicencePublic(valid=False, plan="free",
-                             organization=org.get("name"),
-                             reason="Subscription is not active")
+    org = await subscription.refresh(db, org)
+    if subscription.state(org) == "free":
+        why = ("The free trial has ended — choose a plan on the FiremeX website"
+               if org.get("subscription_status") == "trial_ended"
+               else "Subscription is not active")
+        return LicencePublic(valid=False, plan="free", organization=org.get("name"), reason=why)
 
     if not body.install_id:
         # Add-ons before 1.3.0 send no installation id, so they cannot be held
@@ -203,10 +215,43 @@ async def validate_licence(body: LicenceCheck,
             reason=(f"This licence is already active on {ahead} installation(s), the "
                     f"limit for the {plan} plan. Remove one under Home Assistant Connection on the FiremeX website."))
 
-    if not created:
+    # Lease chain. Every answer carries the next sequence number, and a 1.7.0+
+    # add-on sends back the one it holds. Two machines running one installation
+    # id (a copied /data folder) both start from the same number; the first to
+    # renew moves the chain on and the other then presents a stale number.
+    ip = _client_ip(request)
+    current_seq = activation.get("lease_seq", 0)
+    if not created and body.lease_seq is not None and body.lease_seq < current_seq:
+        # A stale number. Once on its own it is a lost reply (we renewed, the
+        # add-on never heard). Two copies leapfrog each other, so EVERY check
+        # is stale — a second stale check within the window is a clone.
+        recent = [t for t in activation.get("stale_checks", [])
+                  if subscription._utc(t) >= now - CLONE_WINDOW]
+        recent.append(now)
         await db.licence_activations.update_one(
-            {"_id": activation["_id"]},
-            {"$set": {"last_seen": now, "addon_version": body.addon_version}})
+            {"_id": activation["_id"]}, {"$set": {"stale_checks": recent[-5:]}})
+        if len(recent) >= 2:
+            if not activation.get("clone_suspected_at"):
+                await account_events.record(
+                    db, org["org_id"], "ha_removed",
+                    "The same Home Assistant installation checked in from two machines, so "
+                    "one copy was refused. If you restored a backup onto a new machine, "
+                    "remove the old installation under Home Assistant Connection.")
+            await db.licence_activations.update_one(
+                {"_id": activation["_id"]}, {"$set": {"clone_suspected_at": now}})
+            return LicencePublic(
+                valid=False, plan="free", organization=org.get("name"),
+                reason=("This installation is already running on another machine. "
+                        "Each licence covers one Home Assistant."))
+    next_seq = current_seq + 1
+
+    ips = [e for e in activation.get("ips", []) if e.get("ip") != ip][-(IP_HISTORY - 1):]
+    ips.append({"ip": ip, "at": now})
+    seen = {"last_seen": now, "addon_version": body.addon_version, "lease_seq": next_seq,
+            "last_ip": ip, "ips": ips}
+    if body.cameras_in_use is not None:
+        seen["cameras_in_use"] = body.cameras_in_use
+    await db.licence_activations.update_one({"_id": activation["_id"]}, {"$set": seen})
 
     # The key may have been replaced while this check was running. Rotation
     # first swaps the key, then marks every installation removed; a seat this
@@ -225,11 +270,14 @@ async def validate_licence(body: LicenceCheck,
             db, org["org_id"], "ha_connected",
             f"Home Assistant connected (add-on {body.addon_version or 'unknown version'})")
 
-    # Paid tiers are unlimited; the number rather than the plan name is what the
-    # add-on enforces, so plan definitions can change without a new image.
-    return LicencePublic(valid=True, plan=plan, max_cameras=None,
+    # The NUMBER of cameras, not the plan name, is what the add-on enforces —
+    # signed, so it cannot be raised on the customer's machine, and plans can
+    # change what they include without a new add-on image.
+    cameras = await subscription.cameras_allowed(org)
+    return LicencePublic(valid=True, plan=plan, max_cameras=cameras,
                          organization=org.get("name"),
-                         entitlement=sign_entitlement(body.install_id, plan, None, org.get("name")))
+                         entitlement=sign_entitlement(body.install_id, plan, cameras,
+                                                      org.get("name"), seq=next_seq))
 
 
 @router.get("/me/activations", response_model=list[LicenceActivationPublic])
@@ -264,7 +312,7 @@ async def my_licence_key(admin: UserPublic = Depends(require_admin)):
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    return _key_public(await _ensure_key(db, org), org)
+    return await _key_public(db, await _ensure_key(db, org), org)
 
 
 @router.post("/me/rotate", response_model=LicenceKeyPublic)
@@ -314,4 +362,4 @@ async def rotate_licence_key(admin: UserPublic = Depends(require_admin)):
                                 f"{admin.name} revoked the previous access token")
     await account_events.record(db, admin.org_id, "token_generated",
                                 f"{admin.name} generated a new access token")
-    return _key_public(key, org)
+    return await _key_public(db, key, org)

@@ -14,7 +14,8 @@ from app.security import (
 )
 from app.rate_limit import rate_limiter
 from app.runtime import uptime_seconds
-from app.plans import list_plans, seed_plans, EDITABLE_FIELDS
+from app import subscription
+from app.plans import CATALOG_VERSION, TRIAL_DAYS, clamp_cameras, list_plans, seed_plans, EDITABLE_FIELDS
 from fastapi import HTTPException
 
 
@@ -132,11 +133,15 @@ async def platform_tenants(_admin: dict = Depends(require_platform_admin)):
         # lately. A customer who never installed is not "degraded".
         quiet = bool(installs) and last < now - QUIET_AFTER
 
+        org = await subscription.refresh(db, org)
         tenants.append({
             "org_id": org_id,
             "name": org["name"],
             "plan": org.get("plan", "trial"),
             "subscription_status": org.get("subscription_status", "trialing"),
+            "cameras": await subscription.cameras_allowed(org),
+            "billing_interval": org.get("billing_interval"),
+            "clone_suspected": any(i.get("clone_suspected_at") for i in installs),
             "users": await db.users.count_documents({"org_id": org_id}),
             "installations": len(installs),
             "max_installations": PLAN_LIMITS.get(org.get("plan", "trial"), {}).get("max_installs", 1),
@@ -148,7 +153,7 @@ async def platform_tenants(_admin: dict = Depends(require_platform_admin)):
     return {"tenants": tenants, "degraded_count": sum(1 for t in tenants if t["degraded"])}
 
 
-VALID_SUBSCRIPTION_STATUSES = {"trialing", "active", "past_due", "canceled", "incomplete"}
+VALID_SUBSCRIPTION_STATUSES = {"trialing", "trial_ended", "active", "past_due", "canceled", "incomplete"}
 
 
 @router.patch("/tenants/{org_id}/plan")
@@ -181,7 +186,7 @@ async def platform_set_tenant_plan(
 
     status = body.subscription_status
     if status is None:
-        status = "trialing" if plans[body.plan].get("price_usd", 0) == 0 else "active"
+        status = "trialing" if body.plan == "trial" else "active"
     if status not in VALID_SUBSCRIPTION_STATUSES:
         raise HTTPException(
             status_code=400,
@@ -201,7 +206,13 @@ async def platform_set_tenant_plan(
         "plan_updated_by": admin.get("email"),
         "plan_updated_at": datetime.utcnow(),
         "plan_update_note": body.note or "",
+        "cameras": clamp_cameras(plans[body.plan], body.cameras) if plans[body.plan].get("per_camera") else None,
+        "grace_until": None,
     }
+    if body.plan == "trial":
+        # Granting a trial by hand starts a fresh one; an old end date would
+        # end it again on the next read.
+        updates["trial_ends_at"] = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
     await db.organizations.update_one({"org_id": org_id}, {"$set": updates})
 
     # Report (don't enforce) an over-quota downgrade.
@@ -247,7 +258,8 @@ async def platform_update_plan(plan_id: str, body: PlanUpdate, _admin: dict = De
     if not updates:
         raise HTTPException(status_code=400, detail="No editable fields provided")
     result = await db.plans.find_one_and_update(
-        {"plan_id": plan_id}, {"$set": updates}, return_document=True, projection={"_id": 0}
+        {"plan_id": plan_id, "catalog_version": CATALOG_VERSION}, {"$set": updates},
+        return_document=True, projection={"_id": 0}
     )
     if not result:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -264,10 +276,17 @@ async def platform_billing(_admin: dict = Depends(require_platform_admin)):
     rows, mrr = [], 0
     counts = {"active": 0, "trialing": 0, "past_due": 0, "canceled": 0, "other": 0}
     async for org in db.organizations.find({}).sort("created_at", 1):
+        org = await subscription.refresh(db, org)
         status = org.get("subscription_status", "trialing")
         plan_id = org.get("plan", "trial")
-        price = plans.get(plan_id, {}).get("price_usd", 0)
-        paying = status == "active" and price > 0
+        plan = plans.get(plan_id, {})
+        # Monthly-equivalent revenue: a yearly price counts a twelfth, and a
+        # per-camera plan is multiplied by the cameras bought.
+        yearly = org.get("billing_interval") == "year"
+        unit = (plan.get("price_year_usd", 0) / 12) if yearly else plan.get("price_month_usd", 0)
+        qty = (org.get("cameras") or plan.get("cameras", 1)) if plan.get("per_camera") else 1
+        price = round(unit * qty, 2)
+        paying = status in ("active", "past_due") and price > 0 and org.get("plan_source") != "manual"
         if paying:
             mrr += price
         counts[status if status in counts else "other"] += 1
@@ -277,6 +296,8 @@ async def platform_billing(_admin: dict = Depends(require_platform_admin)):
             "plan": plan_id,
             "subscription_status": status,
             "price_usd": price,
+            "billing_interval": org.get("billing_interval"),
+            "cameras": await subscription.cameras_allowed(org),
             "paying": paying,
             "has_payment_method": bool(org.get("stripe_customer_id")),
             "current_period_end": org.get("current_period_end").isoformat() if org.get("current_period_end") else None,
@@ -284,8 +305,8 @@ async def platform_billing(_admin: dict = Depends(require_platform_admin)):
         })
 
     return {
-        "mrr_usd": mrr,
-        "arr_usd": mrr * 12,
+        "mrr_usd": round(mrr, 2),
+        "arr_usd": round(mrr * 12, 2),
         "paying_customers": sum(1 for r in rows if r["paying"]),
         "status_counts": counts,
         "customers": rows,
@@ -311,6 +332,12 @@ async def platform_installations(_admin: dict = Depends(require_platform_admin))
             "first_seen": _utc(i["first_seen"]).isoformat(),
             "last_seen": last.isoformat(),
             "checked_in": last >= now - QUIET_AFTER,
+            "cameras_in_use": i.get("cameras_in_use"),
+            # Sharing signals for staff review — never an automatic block:
+            # home internet changes address, so many IPs alone proves nothing.
+            "clone_suspected": bool(i.get("clone_suspected_at")),
+            "ip_count_7d": len({e["ip"] for e in i.get("ips", [])
+                                if _utc(e["at"]) >= now - timedelta(days=7)}),
         })
     rows.sort(key=lambda r: (r["checked_in"], r["last_seen"]))
     return {

@@ -72,12 +72,14 @@ export default function Overview() {
     : status.state === 'never' ? 'Your account is ready. Connect your Home Assistant to finish setting up.'
     : 'Here is the state of your FiremeX account.'
 
-  const trialDays = org?.trial_ends_at
-    ? Math.max(0, Math.ceil((new Date(org.trial_ends_at) - Date.now()) / 86400_000)) : null
-  const nextBilling = !org ? '—'
-    : org.plan === 'trial' ? (trialDays > 0 ? `Trial ends in ${trialDays} day${trialDays === 1 ? '' : 's'}` : 'Trial ended')
-    : org.current_period_end ? new Date(org.current_period_end).toLocaleDateString()
-    : org.plan_source === 'manual' ? 'Managed by FiremeX' : 'Not scheduled'
+  const sub = billing?.subscription
+  const day = (d) => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  const nextBilling = !sub ? '—'
+    : sub.state === 'trial' ? `Trial ends in ${sub.trial_days_left} day${sub.trial_days_left === 1 ? '' : 's'}`
+    : sub.cancel_at_period_end ? `Ends ${day(sub.renews_at)}`
+    : billing.has_subscription && sub.renews_at ? day(sub.renews_at)
+    : sub.plan_source === 'manual' ? 'Managed by FiremeX' : '—'
+  const STATE_TEXT = { trial: 'Free trial', active: 'Active', grace: 'Payment failed — retrying', free: sub?.trial_ended ? 'Trial ended' : 'Free' }
 
   return (
     <div className="max-w-6xl space-y-6 fade-up">
@@ -115,13 +117,13 @@ export default function Overview() {
                 {status.lastSeen ? `${timeAgo(status.lastSeen)}` : 'Never'}
               </Row>
               <Row label="Add-on version">{status.version || '—'}</Row>
-              <Row label="Installations">
-                {status.count ?? 0} of {licence?.max_installs ?? '—'}
+              <Row label="Home Assistant">
+                {status.count ?? 0} of {licence?.max_installs ?? '—'} connected
               </Row>
               <Row label="Access token">
                 {!licence ? '—' : licence.entitled
-                  ? <span className="text-safe">Active — all cameras</span>
-                  : <span className="text-warn">Free tier only (1 camera)</span>}
+                  ? <span className="text-safe">Active — up to {licence.max_cameras} cameras</span>
+                  : <span className="text-warn">Free plan — 1 camera</span>}
               </Row>
               {status.state !== 'connected' && status.state !== 'loading' && (
                 <Link to="/home-assistant#reconnect" className="mt-3 text-[12px] text-brand hover:underline self-start">
@@ -135,13 +137,13 @@ export default function Overview() {
         {/* ── Subscription ── */}
         <Card title="Subscription" icon={Wallet}
               action={<Link to="/billing" className="text-[12px] text-brand hover:underline">Plans & Billing</Link>}>
-          <Row label="Current plan"><span className="capitalize">{billing?.limits.label ?? org?.plan ?? '—'}</span></Row>
-          <Row label="Status"><span className="capitalize">{org?.subscription_status ?? '—'}</span></Row>
-          <Row label="Billing interval">{org?.plan === 'trial' ? 'Free trial' : 'Monthly'}</Row>
-          <Row label="Next billing date">{nextBilling}</Row>
-          <Row label="Home Assistant installations">
-            {billing ? `${billing.usage.installs} of ${billing.limits.max_installs}` : '—'}
+          <Row label="Current plan">{sub?.label ?? '—'}</Row>
+          <Row label="Status">
+            <span className={sub?.state === 'grace' || sub?.trial_ended ? 'text-hazard' : ''}>{sub ? STATE_TEXT[sub.state] : '—'}</span>
           </Row>
+          <Row label="Cameras">{sub ? `Up to ${sub.cameras}` : '—'}</Row>
+          <Row label="Billing">{!sub ? '—' : sub.interval === 'year' ? 'Yearly' : sub.interval === 'month' ? 'Monthly' : sub.state === 'trial' ? 'Free trial' : '—'}</Row>
+          <Row label="Next billing date">{nextBilling}</Row>
           <Row label="Team members">
             {billing ? `${billing.usage.users} of ${billing.limits.max_users}` : '—'}
           </Row>

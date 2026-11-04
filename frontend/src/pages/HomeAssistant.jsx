@@ -90,7 +90,7 @@ export default function HomeAssistant() {
             </p>
 
             <h3 className="text-[12px] font-semibold text-slate-400 mt-6 mb-2">
-              Installations using your token ({status.count ?? 0} of {licence?.max_installs ?? '—'})
+              Home Assistant using your token ({status.count ?? 0} of {licence?.max_installs ?? '—'})
             </h3>
             {installs === null ? (
               <p className="text-[12px] text-slate-600">Loading…</p>
@@ -105,8 +105,13 @@ export default function HomeAssistant() {
                     <div className="min-w-0 flex-1">
                       <p className="font-mono text-[11.5px] text-slate-300 truncate">{i.install_id}</p>
                       <p className="text-[11px] text-slate-600">
-                        Add-on {i.addon_version || '?'} · connected {new Date(i.first_seen).toLocaleDateString()} · last seen {timeAgo(i.last_seen)}
+                        Add-on {i.addon_version || '?'}{i.cameras_in_use != null && ` · ${i.cameras_in_use} camera${i.cameras_in_use === 1 ? '' : 's'}`} · connected {new Date(i.first_seen).toLocaleDateString()} · last seen {timeAgo(i.last_seen)}
                       </p>
+                      {i.clone_suspected_at && (
+                        <p className="text-[11px] text-warn mt-0.5">
+                          A copy of this installation was seen on another machine and refused.
+                        </p>
+                      )}
                     </div>
                     {isAdmin && (
                       <button type="button" onClick={() => remove(i)}

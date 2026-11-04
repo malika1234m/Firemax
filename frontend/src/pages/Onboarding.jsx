@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext'
 import { useConnection } from '../hooks/useConnection'
 import { CopyButton } from '../components/Copy'
 import InstallSteps from '../components/InstallSteps'
+import PlanPicker, { IntervalToggle } from '../components/PlanPicker'
 import { timeAgo } from '../lib/homeAssistant'
 import logo from '../assets/logo.png'
 
@@ -296,6 +297,8 @@ function PlanStep({ org, onNext }) {
   const { toast } = useToast()
   const [status, setStatus] = useState(null)
   const [busy, setBusy] = useState(null)
+  const [interval, setPeriod] = useState('month')
+  const [cameras, setCameras] = useState(5)
   useEffect(() => {
     apiFetch('/billing/status').then(r => (r.ok ? r.json() : null)).then(setStatus).catch(() => {})
   }, [])
@@ -304,7 +307,7 @@ function PlanStep({ org, onNext }) {
     setBusy(plan)
     try {
       const { url } = await apiJson('/billing/checkout-session', {
-        method: 'POST', body: JSON.stringify({ plan, return_to: 'welcome' }),
+        method: 'POST', body: JSON.stringify({ plan, interval, cameras, return_to: 'welcome' }),
       })
       window.location.href = url
     } catch (err) {
@@ -313,67 +316,43 @@ function PlanStep({ org, onNext }) {
     }
   }
 
-  const trialDays = org?.trial_ends_at
-    ? Math.max(0, Math.ceil((new Date(org.trial_ends_at) - Date.now()) / 86400_000)) : null
+  const sub = status?.subscription
+  const onTrial = sub?.state === 'trial'
+  const actionFor = (p) => {
+    if (p.plan_id === 'free') return onTrial ? { kind: 'none' } : sub?.state === 'free' ? { kind: 'current' } : { kind: 'none' }
+    if (sub?.plan === p.plan_id && sub.state !== 'free') return { kind: 'current' }
+    if (!status.stripe_configured) return { kind: 'secondary', label: 'Talk to us' }
+    return { kind: 'secondary', label: `Choose ${p.label}` }
+  }
 
   return (
     <>
-      <Title sub={org?.plan === 'trial' && trialDays !== null
-        ? `You're on the free trial with ${trialDays} day${trialDays === 1 ? '' : 's'} left. Keep it for now if you like. You can upgrade any time from Plans & Billing.`
-        : 'This is the plan you are on. You can change it any time under Plans & Billing.'}>
-        Pick a plan, or keep the trial
+      <Title sub={onTrial
+        ? `Your free trial has ${sub.trial_days_left} day${sub.trial_days_left === 1 ? '' : 's'} left, with up to ${sub.cameras} cameras. Pick a plan now, or keep the trial and decide later.`
+        : 'Plans are priced by camera. You can change or cancel at any time under Plans & Billing.'}>
+        {onTrial ? 'Pick a plan, or keep the trial' : 'Pick a plan'}
       </Title>
 
       {!status ? (
-        <div className="grid sm:grid-cols-3 gap-4">
-          {[0, 1, 2].map(i => <div key={i} className="h-56 rounded-xl border border-white/[0.06] bg-white/[0.02] animate-pulse" />)}
+        <div className="grid md:grid-cols-3 gap-4">
+          {[0, 1, 2].map(i => <div key={i} className="h-72 rounded-xl border border-white/[0.06] bg-white/[0.02] animate-pulse" />)}
         </div>
       ) : (
-        <div className="grid sm:grid-cols-3 gap-4">
-          {Object.entries(status.plans).map(([id, p]) => {
-            const current = org?.plan === id
-            return (
-              <div key={id} className={`relative rounded-xl border p-5 flex flex-col transition-colors
-                ${current ? 'border-brand/50 bg-brand/[0.06]' : 'border-white/[0.07] bg-panel/70 hover:border-white/[0.14]'}`}>
-                {current && (
-                  <span className="absolute -top-2.5 left-5 text-[10.5px] font-semibold uppercase tracking-wider bg-brand text-white rounded px-2 py-0.5">
-                    Your plan
-                  </span>
-                )}
-                <p className="text-[13px] font-medium text-slate-300">{p.label}</p>
-                <p className="font-raj font-bold text-[32px] text-white leading-none mt-2">
-                  {p.amount_usd ? `$${p.amount_usd}` : 'Free'}
-                  {p.amount_usd ? <span className="text-[12px] text-slate-400 font-sans font-normal"> / month</span> : null}
-                </p>
-                <p className="text-[12px] text-slate-400 mt-2">
-                  {p.max_installs} Home Assistant{p.max_installs === 1 ? '' : 's'} · unlimited cameras
-                </p>
-                <ul className="mt-4 pt-4 border-t border-white/[0.06] space-y-2 flex-1">
-                  {(p.features ?? []).slice(0, 3).map(f => (
-                    <li key={f} className="flex items-start gap-2 text-[12.5px] text-slate-400 leading-snug">
-                      <Check size={13} className="text-brand shrink-0 mt-0.5" strokeWidth={2.5} /> {f}
-                    </li>
-                  ))}
-                </ul>
-                {current ? (
-                  <button onClick={onNext} className="btn-primary w-full mt-5">
-                    Continue <ArrowRight size={14} />
-                  </button>
-                ) : p.purchasable && status.stripe_configured ? (
-                  <button onClick={() => upgrade(id)} disabled={busy === id} className="btn-secondary w-full mt-5">
-                    {busy === id ? <><Loader2 size={14} className="animate-spin" /> Opening checkout</> : `Choose ${p.label}`}
-                  </button>
-                ) : p.purchasable ? (
-                  <Link to="/support" className="btn-secondary w-full mt-5">Talk to us</Link>
-                ) : <div className="h-11 mt-5" />}
-              </div>
-            )
-          })}
-        </div>
+        <>
+          <div className="mb-5"><IntervalToggle interval={interval} onChange={setPeriod} /></div>
+          <PlanPicker plans={status.plans} interval={interval} cameras={cameras} onCameras={setCameras}
+                      actionFor={actionFor} busy={busy}
+                      onChoose={(id) => (status.stripe_configured ? upgrade(id) : (window.location.href = '/support'))} />
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+            <p className="text-[12px] text-slate-400 flex items-center gap-2">
+              <Lock size={12} /> Payments go through Stripe. FiremeX never sees your card number.
+            </p>
+            <button onClick={onNext} className="btn-primary">
+              {onTrial ? 'Keep the trial for now' : 'Continue'} <ArrowRight size={15} />
+            </button>
+          </div>
+        </>
       )}
-      <p className="text-[12px] text-slate-400 mt-5 flex items-center gap-2">
-        <Lock size={12} /> Payments go through Stripe. FiremeX never sees your card number.
-      </p>
     </>
   )
 }
