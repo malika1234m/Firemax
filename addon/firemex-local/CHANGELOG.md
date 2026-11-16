@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.8.0
+
+Fixes from a full audit of the add-on in a real Home Assistant OS, tested with
+recorded CCTV fire footage (see FIREMEX_HOME_ASSISTANT_AUDIT.md in the repo).
+
+- **About 18× less work per picture.** The model ran twice on every frame and
+  four rule-based checks ran whose results were then thrown away. The add-on
+  now runs only what can raise an alert: on 1080p CCTV frames 52 ms instead of
+  965 ms, with identical fire detections. Cameras are checked on time on
+  smaller machines.
+- **A camera can no longer stop being checked while looking "online".** One
+  error in a detection cycle used to end that camera's checking for good. It
+  now carries on, and a camera whose checks keep failing is not shown as
+  watched.
+- **A fire seen by the model is always reported.** A colour rule agreeing with
+  the model too strongly could replace the model's fire box and the alert was
+  lost.
+- **A failed alert is retried on the next picture**, not after the 30 s cooldown.
+- **The add-on waits for Home Assistant at start-up** instead of stopping when
+  Core is still booting or restarting.
+- **A renewed or upgraded licence works after a restart.** A refusal used to be
+  remembered for 24 hours; it is now asked again at every start and every hour.
+- **The "camera offline" notification is removed** once every camera is back.
+- **The licence key is hidden** in the Configuration tab.
+- A refused Home Assistant token is reported as such in the log.
+- Documentation: turn on **Watchdog** on the Info tab, so a crash of the
+  add-on is restarted within seconds.
+
 ## 1.7.0
 
 - **Plans are now by camera.** The licence carries the number of cameras your

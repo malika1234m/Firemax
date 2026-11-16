@@ -36,6 +36,12 @@ watching 1 camera(s)
 Cameras added to Home Assistant later are picked up within a minute — no
 restart needed.
 
+4. On the add-on's **Info** tab, turn on **Watchdog** (and **Start on boot**).
+   Home Assistant leaves Watchdog off for every add-on, and without it a
+   crash of the add-on stops fire detection until someone presses Start —
+   and nothing on the dashboard says so, because the sensors keep their last
+   value. With Watchdog on, Home Assistant restarts it within seconds.
+
 ## The operator workflow
 
 FiremeX raises **alerts**. Only a person declares an **incident**.
