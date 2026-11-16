@@ -106,6 +106,12 @@ class EdgePipeline:
         self._last_alert_time = 0.0
         self.current_fps = 0.0
         self.avg_inference_ms = 0.0
+        self._frame_count = 0
+        self._fps_timer = time.time()
+        # Detection cycles that raised. Shown in health() so a camera whose
+        # frames arrive but cannot be checked is visible, not "online".
+        self.errors = 0
+        self._last_error_at = 0.0
 
     def set_process_fps(self, fps: float):
         """Change how often this camera is checked, without restarting it.
@@ -130,71 +136,93 @@ class EdgePipeline:
         self.reader.stop()
 
     def _loop(self):
-        import cv2
-        frame_count, fps_timer = 0, time.time()
+        """Run detection until stopped. One failed cycle must never end it.
+
+        Before this guard a single exception — a model hiccup, a malformed
+        frame, a failed alert callback — ended the thread for good, while the
+        reader thread kept fetching frames, so health() still said "online".
+        The camera wall showed the camera as watched while nothing was being
+        checked: the one failure a fire system must never hide.
+        """
         while self._running:
-            frame = self.reader.get_frame()
-            if frame is None:
-                time.sleep(0.2)
-                continue
+            try:
+                self._cycle()
+            except Exception:
+                self.errors += 1
+                self._last_error_at = time.time()
+                # The first failure with its traceback, then a reminder now
+                # and then, so a persistent fault cannot flood the log.
+                if self.errors == 1 or self.errors % 100 == 0:
+                    logger.exception(f"detection cycle failed on {self.camera_name} "
+                                     f"({self.errors} so far); carrying on")
+                time.sleep(1.0)
 
-            t0 = time.time()
-            detections = self.detector.detect(frame)
-            infer_ms = (time.time() - t0) * 1000
-            self.avg_inference_ms = infer_ms if self.avg_inference_ms == 0 else 0.8 * self.avg_inference_ms + 0.2 * infer_ms
+    def _cycle(self):
+        """One detection cycle: fetch the newest frame, detect, maybe alert."""
+        import cv2
+        frame = self.reader.get_frame()
+        if frame is None:
+            time.sleep(0.2)
+            return
 
-            hazards = [h for h in self.detector.is_hazard(detections) if h.confidence >= self.confidence_threshold]
+        t0 = time.time()
+        detections = self.detector.detect(frame)
+        infer_ms = (time.time() - t0) * 1000
+        self.avg_inference_ms = infer_ms if self.avg_inference_ms == 0 else 0.8 * self.avg_inference_ms + 0.2 * infer_ms
 
-            frame_count += 1
-            elapsed = time.time() - fps_timer
-            self.current_fps = frame_count / elapsed if elapsed > 0 else 0
-            if elapsed >= 5:
-                frame_count, fps_timer = 0, time.time()
+        hazards = [h for h in self.detector.is_hazard(detections) if h.confidence >= self.confidence_threshold]
 
-            # Live-feed relay: stream throttled frames up only while watched.
-            if self.streaming and self.on_frame is not None:
-                now = time.time()
-                if now - self._last_streamed >= self._live_interval:
-                    self._last_streamed = now
-                    ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                    if ok:
-                        # Coordinates travel with the frame; the browser draws
-                        # them. Sending the clean JPEG keeps boxes sharp when
-                        # the tile is scaled up, and lets them be toggled off.
-                        self.on_frame(
-                            self.camera_id,
-                            base64.b64encode(jpeg.tobytes()).decode(),
-                            round(self.current_fps, 1),
-                            [d.model_dump() for d in detections],
-                        )
+        self._frame_count += 1
+        elapsed = time.time() - self._fps_timer
+        self.current_fps = self._frame_count / elapsed if elapsed > 0 else 0
+        if elapsed >= 5:
+            self._frame_count, self._fps_timer = 0, time.time()
 
-            if hazards:
-                now = time.time()
-                if now - self._last_alert_time >= self.cooldown_seconds:
-                    self._last_alert_time = now
-                    top = max(hazards, key=lambda d: d.confidence)
-                    # Annotated: the snapshot is the evidence an operator judges
-                    # a true or false alarm on, so it must show what triggered it.
-                    ok, jpeg = cv2.imencode(".jpg", annotate(frame, hazards),
-                                            [cv2.IMWRITE_JPEG_QUALITY, 70])
-                    frame_b64 = base64.b64encode(jpeg.tobytes()).decode() if ok else None
-                    self.on_event({
-                        "camera_id": self.camera_id,
-                        "camera_name": self.camera_name,
-                        "hazard_type": top.label,
-                        "confidence": float(top.confidence),
-                        "zone": self.zone,
-                        "frame_b64": frame_b64,
-                    })
-                    logger.warning(f"HAZARD {top.label} on {self.camera_name} ({top.confidence:.0%})")
+        # Live-feed relay: stream throttled frames up only while watched.
+        if self.streaming and self.on_frame is not None:
+            now = time.time()
+            if now - self._last_streamed >= self._live_interval:
+                self._last_streamed = now
+                ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ok:
+                    # Coordinates travel with the frame; the browser draws
+                    # them. Sending the clean JPEG keeps boxes sharp when
+                    # the tile is scaled up, and lets them be toggled off.
+                    self.on_frame(
+                        self.camera_id,
+                        base64.b64encode(jpeg.tobytes()).decode(),
+                        round(self.current_fps, 1),
+                        [d.model_dump() for d in detections],
+                    )
 
-            if self._process_interval is None:
-                time.sleep(0.05)
-            else:
-                # Pace to the requested rate, measured from the START of this
-                # cycle so inference time counts towards the interval rather
-                # than being added on top of it.
-                time.sleep(max(0.0, self._process_interval - (time.time() - t0)))
+        if hazards and time.time() - self._last_alert_time >= self.cooldown_seconds:
+            top = max(hazards, key=lambda d: d.confidence)
+            # Annotated: the snapshot is the evidence an operator judges
+            # a true or false alarm on, so it must show what triggered it.
+            ok, jpeg = cv2.imencode(".jpg", annotate(frame, hazards),
+                                    [cv2.IMWRITE_JPEG_QUALITY, 70])
+            frame_b64 = base64.b64encode(jpeg.tobytes()).decode() if ok else None
+            self.on_event({
+                "camera_id": self.camera_id,
+                "camera_name": self.camera_name,
+                "hazard_type": top.label,
+                "confidence": float(top.confidence),
+                "zone": self.zone,
+                "frame_b64": frame_b64,
+            })
+            # Only once the alert has been handed over: if delivering it
+            # failed, the next frame tries again instead of the fire going
+            # unreported for a whole cooldown.
+            self._last_alert_time = time.time()
+            logger.warning(f"HAZARD {top.label} on {self.camera_name} ({top.confidence:.0%})")
+
+        if self._process_interval is None:
+            time.sleep(0.05)
+        else:
+            # Pace to the requested rate, measured from the START of this
+            # cycle so inference time counts towards the interval rather
+            # than being added on top of it.
+            time.sleep(max(0.0, self._process_interval - (time.time() - t0)))
 
     def health(self) -> dict:
         age = self.reader.last_frame_age()
@@ -204,4 +232,8 @@ class EdgePipeline:
             "inference_ms": round(self.avg_inference_ms, 1),
             "last_frame_age_s": round(age, 1) if age is not None else None,
             "online": age is not None and age < OFFLINE_THRESHOLD_SECONDS,
+            "errors": self.errors,
+            # Failing right now: the last cycle error is recent. Frames still
+            # arriving does not make such a camera "watched".
+            "detecting": time.time() - self._last_error_at > 10,
         }
