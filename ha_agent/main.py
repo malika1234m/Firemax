@@ -92,6 +92,25 @@ class ClassFilteredDetector:
                 if ("colour_fire" if d.source == "colour" else d.label.lower()) in self._allowed]
 
 
+# Which detector branch can produce each opt-in hazard class. The learned
+# classes (fire, smoke, flame) come from the network, which always runs.
+_BRANCH_FOR_CLASS = {
+    "colour_fire": "colour",
+    "gas_fire": "gas_colour", "lpg_fire": "gas_colour", "chemical_fire": "gas_colour",
+    "gas_shimmer": "flow",
+    "person_down": "pose",
+}
+
+
+def branches_for(hazard_classes) -> set:
+    """Only the branches whose boxes could raise an alert. The rest were run on
+    every frame and their boxes thrown away by ClassFilteredDetector — on the
+    default settings that was four rule branches plus a second pass of the
+    network, which more than doubled the time each picture took to check."""
+    return {"model"} | {_BRANCH_FOR_CLASS[c.strip().lower()] for c in hazard_classes
+                        if c and c.strip().lower() in _BRANCH_FOR_CLASS}
+
+
 def build_detector(options):
     """The learned model plus the deterministic branches — identical to the
     site agent. Weights are fetched and checksum-verified before loading,
@@ -116,9 +135,10 @@ def build_detector(options):
     ensure_model(options.model_path, options.model_url, options.model_sha256)
 
     from app.detection.detector import HazardDetector
-    detector = HazardDetector(model_path=options.model_path,
-                              threshold=options.confidence_threshold)
     allowed = options.hazard_classes
+    detector = HazardDetector(model_path=options.model_path,
+                              threshold=options.confidence_threshold,
+                              branches=branches_for(allowed))
     logger.info(f"Detector: YOLO (real model)  alerting on: {', '.join(allowed)}")
     return ClassFilteredDetector(detector, allowed)
 
@@ -280,6 +300,76 @@ def reconcile(client, options, detector, pipelines: dict, states: dict, on_event
     return changed
 
 
+def update_camera_health(client, options, pipelines: dict, states: dict, now: float) -> None:
+    """Publish each camera's status for the camera wall; raise an offline
+    alert when one falls silent and clear it when it comes back."""
+    for entity_id, pipeline in list(pipelines.items()):
+        st = states.get(entity_id)
+        if st is None:
+            continue
+        health = pipeline.health()
+        # Frames arriving is not enough: a camera whose detection keeps
+        # failing is not being watched and must not look green.
+        online = bool(health["online"]) and health.get("detecting", True)
+        silent = camera_silent(health, st.started_at, now,
+                               options.camera_offline_after_seconds)
+        if silent and not st.offline_alerted:
+            st.offline_alerted = True
+            st.hazard = OFFLINE_HAZARD
+            age = health["last_frame_age_s"]
+            logger.warning(f"ALERT camera_offline on {st.name} — "
+                           + (f"no frames for {age}s" if age is not None else "no frame received yet"))
+            client.publish_camera_offline(entity_id, st.name, _now_iso(),
+                                          health["last_frame_age_s"])
+        elif online and st.offline_alerted:
+            st.offline_alerted = False
+            st.hazard = "clear"
+            logger.info(f"camera recovered: {st.name}")
+            # One notification id covers every camera, so only take it
+            # down when no other camera is still offline.
+            if not any(s.offline_alerted for s in states.values()):
+                client.dismiss_offline_notification()
+
+        # Per-camera hazard also expires, so the wall does not show a
+        # camera as burning ten minutes after the fact.
+        if (st.hazard not in ("clear", OFFLINE_HAZARD) and st.last_hazard_at
+                and now - st.last_hazard_at >= options.clear_after_seconds):
+            st.hazard = "clear"
+            st.confidence = 0.0
+
+        client.publish_camera(entity_id, st.name, st.hazard, st.confidence,
+                              online, health["fps"], st.last_detection,
+                              st.snapshot_url)
+
+
+HA_RETRY_SECONDS = 10
+
+
+def wait_for_home_assistant(client, stop, retry_seconds: float = HA_RETRY_SECONDS) -> bool:
+    """Block until Home Assistant Core answers. False only if asked to stop.
+
+    This used to exit at the first failed ping. Core is routinely unreachable
+    for a minute — it is restarting after an update, or the host has just
+    booted — and the add-on has no watchdog, so one unlucky start left fire
+    detection OFF until someone noticed and pressed Start by hand.
+    """
+    attempts = 0
+    while not stop.is_set():
+        if client.ping():
+            if attempts:
+                logger.info("Home Assistant is reachable again — starting")
+            return True
+        attempts += 1
+        if attempts == 1 or attempts % 6 == 0:
+            # Say WHY: a refused token and a Core that is still booting need
+            # different fixes, and used to read identically.
+            reason = getattr(client, "last_error", None) or "no answer"
+            logger.warning(f"Home Assistant not ready (attempt {attempts}): {reason}; "
+                           f"retrying every {retry_seconds:g}s")
+        stop.wait(retry_seconds)
+    return False
+
+
 _provision_lock = threading.Lock()
 
 
@@ -318,7 +408,8 @@ def run():
     # cancelled licence or an installation removed by its owner is noticed on a
     # machine that never restarts. Each daily call renews the lease with the
     # cloud, reporting how many cameras are being watched.
-    entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION)
+    entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION,
+                                         recheck_refusal=True)
     max_cameras = entitlement.get("max_cameras")
     logger.info(licence_module.describe(entitlement))
 
@@ -328,8 +419,13 @@ def run():
             "No SUPERVISOR_TOKEN. This add-on must run under the Home Assistant "
             "Supervisor with 'homeassistant_api: true' in its configuration."
         )
-    if not client.ping():
-        raise SystemExit("Could not reach Home Assistant. Is the Supervisor healthy?")
+    stop = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+
+    if not wait_for_home_assistant(client, stop):
+        client.close()
+        return
 
     # Set up the operator workflow before detecting anything. A client who
     # installs the add-on and presses Start should get the dashboard, the
@@ -379,10 +475,6 @@ def run():
                        "camera integration in Home Assistant and it will be "
                        "picked up automatically.")
 
-    stop = threading.Event()
-    signal.signal(signal.SIGINT, lambda *_: stop.set())
-    signal.signal(signal.SIGTERM, lambda *_: stop.set())
-
     # Encrypted EZVIZ cameras: the bridge plays them with EZVIZ's own player
     # and adds each to Home Assistant, where camera discovery (below) finds
     # them within a minute. Off unless ezviz_cameras is filled in.
@@ -424,39 +516,13 @@ def run():
         # Per-camera status for the operator's camera wall, plus offline alerts.
         if now - last_publish >= CAMERA_PUBLISH_INTERVAL:
             last_publish = now
-            for entity_id, pipeline in list(pipelines.items()):
-                st = states.get(entity_id)
-                if st is None:
-                    continue
-                health = pipeline.health()
-                online = bool(health["online"])
-                silent = camera_silent(health, st.started_at, now,
-                                       options.camera_offline_after_seconds)
-                if silent and not st.offline_alerted:
-                    st.offline_alerted = True
-                    st.hazard = OFFLINE_HAZARD
-                    age = health["last_frame_age_s"]
-                    logger.warning(f"ALERT camera_offline on {st.name} — "
-                                   + (f"no frames for {age}s" if age is not None else "no frame received yet"))
-                    client.publish_camera_offline(entity_id, st.name, _now_iso(),
-                                                  health["last_frame_age_s"])
-                elif online and st.offline_alerted:
-                    st.offline_alerted = False
-                    st.hazard = "clear"
-                    logger.info(f"camera recovered: {st.name}")
+            update_camera_health(client, options, pipelines, states, now)
 
-                # Per-camera hazard also expires, so the wall does not show a
-                # camera as burning ten minutes after the fact.
-                if (st.hazard not in ("clear", OFFLINE_HAZARD) and st.last_hazard_at
-                        and now - st.last_hazard_at >= options.clear_after_seconds):
-                    st.hazard = "clear"
-                    st.confidence = 0.0
-
-                client.publish_camera(entity_id, st.name, st.hazard, st.confidence,
-                                      online, health["fps"], st.last_detection,
-                                      st.snapshot_url)
-
-        if now - last_licence >= LICENCE_RECHECK_INTERVAL:
+        # A refusal is re-asked hourly (see licence.REFUSAL_RECHECK_SECONDS),
+        # so a renewal reaches a machine that is never restarted the same hour.
+        recheck_every = (LICENCE_RECHECK_INTERVAL if entitlement.get("valid")
+                         else licence_module.REFUSAL_RECHECK_SECONDS)
+        if now - last_licence >= recheck_every:
             last_licence = now
             entitlement = licence_module.resolve(options.licence_key, opts_module.ADDON_VERSION,
                                                  cameras_in_use=len(pipelines))

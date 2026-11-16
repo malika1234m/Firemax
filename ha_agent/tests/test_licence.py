@@ -173,3 +173,35 @@ def test_a_refusal_keeps_the_lease_number_but_grants_nothing(signer, monkeypatch
     monkeypatch.setattr(licence, "_check_cloud", lambda *a, **kw: sent.append(kw) or None)
     assert licence.resolve(KEY)["max_cameras"] == licence.FREE_TIER_MAX_CAMERAS
     assert sent[-1]["lease_seq"] == 6
+
+
+# ── 2026-11 audit: a refusal must not outlive a renewal ───────────────────
+
+def test_restart_after_renewal_unlocks_cameras_at_once(signer, monkeypatch):
+    """Customer was refused, pays, restarts the add-on: the restart asks again."""
+    answers = iter([lambda iid: {"valid": False, "reason": "Subscription is not active"},
+                    lambda iid: {"valid": True, "entitlement": signer(iid, 4)}])
+    calls = cloud(monkeypatch, lambda iid: next(answers)(iid))
+    assert licence.resolve(KEY)["max_cameras"] == licence.FREE_TIER_MAX_CAMERAS
+    assert licence.resolve(KEY, recheck_refusal=True)["max_cameras"] == 4
+    assert len(calls) == 2
+
+
+def test_a_refusal_is_rechecked_within_the_hour_without_a_restart(signer, monkeypatch):
+    answers = iter([lambda iid: {"valid": False, "reason": "Licence check interrupted — it will be retried"},
+                    lambda iid: {"valid": True, "entitlement": signer(iid, 4)}])
+    calls = cloud(monkeypatch, lambda iid: next(answers)(iid))
+    licence.resolve(KEY)
+    assert licence.resolve(KEY)["max_cameras"] == licence.FREE_TIER_MAX_CAMERAS   # cached, no call
+    assert len(calls) == 1
+    real_time = time.time
+    monkeypatch.setattr(licence.time, "time", lambda: real_time() + licence.REFUSAL_RECHECK_SECONDS + 1)
+    assert licence.resolve(KEY)["max_cameras"] == 4
+    assert len(calls) == 2
+
+
+def test_a_grant_is_still_cached_for_a_day(signer, monkeypatch):
+    calls = cloud(monkeypatch, lambda iid: {"valid": True, "entitlement": signer(iid, 4)})
+    licence.resolve(KEY)
+    assert licence.resolve(KEY, recheck_refusal=True)["max_cameras"] == 4
+    assert len(calls) == 1

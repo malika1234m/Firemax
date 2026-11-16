@@ -65,6 +65,14 @@ LICENCE_PUBLIC_KEY = "396MfhQkVC9XDbg+H69bN7yKzxDtr2ZKOKYedPwgNbU="
 # installation on another machine is caught at the next renewal.
 REFRESH_SECONDS = 24 * 3600
 
+# A REFUSAL is re-asked much sooner, and always when the add-on starts. A "no"
+# is often about to change: the customer has just paid, renewed, or removed an
+# old installation to free a seat — and some refusals are temporary by nature
+# ("Licence check interrupted — it will be retried"). Holding one for a day
+# kept a paying site on the free tier, with cameras unwatched, for up to 24 h
+# after a restart that the customer expected to fix it.
+REFUSAL_RECHECK_SECONDS = 3600
+
 # How long a valid answer keeps working while the cloud is unreachable is set by
 # the cloud, as the signed entitlement's expiry (30 days). A site with a flaky
 # uplink must not silently lose cameras; after that the add-on drops to the free
@@ -193,12 +201,15 @@ def _check_cloud(key: str, this_install: str, addon_version: str | None,
 
 
 def resolve(licence_key: str, addon_version: str | None = None,
-            cameras_in_use: int | None = None) -> dict:
+            cameras_in_use: int | None = None, recheck_refusal: bool = False) -> dict:
     """Decide what this install is entitled to.
 
     Returns a dict with `valid`, `plan`, `max_cameras` (None = unlimited) and a
     human `reason`. Never raises: any failure resolves to the free tier.
     A paid answer is only ever believed if its signature verifies.
+
+    `recheck_refusal` (used at start-up) asks the cloud again even when a
+    recent refusal is cached.
     """
     key = (licence_key or "").strip()
     if not key:
@@ -212,11 +223,12 @@ def resolve(licence_key: str, addon_version: str | None = None,
     if cache and cache.get("key") == key and cache.get("valid"):
         cached_claims = verify(cache.get("entitlement"), this_install)
 
-    fresh_enough = (
-        cache
-        and cache.get("key") == key
-        and (time.time() - cache.get("checked_at", 0)) < REFRESH_SECONDS
-    )
+    age = time.time() - (cache or {}).get("checked_at", 0)
+    if cache and cache.get("valid"):
+        fresh_enough = cache.get("key") == key and age < REFRESH_SECONDS
+    else:
+        fresh_enough = (bool(cache) and cache.get("key") == key and not recheck_refusal
+                        and age < REFUSAL_RECHECK_SECONDS)
     if fresh_enough:
         if cached_claims:
             return _granted(cached_claims, cache.get("reason") or "licence OK")

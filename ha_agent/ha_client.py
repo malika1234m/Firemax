@@ -38,6 +38,9 @@ HAZARD_EVENT = "firemex_hazard"
 # "camera_offline" hazard type the cloud's Alert model carries.
 OFFLINE_EVENT = "firemex_camera_offline"
 OFFLINE_HAZARD = "camera_offline"
+# The notification the provisioned "Camera offline" automation creates (one id
+# shared by every camera — see setup_ha.automations).
+OFFLINE_NOTIFICATION_ID = "firemex_camera_offline"
 
 
 # FiremeX publishes its own annotated snapshots back into Home Assistant as
@@ -57,6 +60,7 @@ class HAClient:
         self.base_url = (base_url or os.environ.get("HA_API_URL") or DEFAULT_API).rstrip("/")
         self.token = token if token is not None else os.environ.get("SUPERVISOR_TOKEN", "")
         self.timeout = timeout
+        self.last_error = None   # why the last ping() failed, if it did
         self._client = httpx.Client(timeout=timeout, headers=self.headers)
 
     @property
@@ -259,6 +263,14 @@ class HAClient:
         self._post(f"/events/{OFFLINE_EVENT}", payload, "offline event")
         self._post(f"/webhook/{HAZARD_WEBHOOK}", payload, "webhook")
 
+    def dismiss_offline_notification(self) -> None:
+        """Take down the "camera offline" notification once every camera is
+        back. Left up, it keeps telling the operator a camera is unwatched when
+        it is being watched again — and a warning that is wrong half the time
+        is soon ignored, including the next time it is right."""
+        self._post("/services/persistent_notification/dismiss",
+                   {"notification_id": OFFLINE_NOTIFICATION_ID}, "offline notification dismissal")
+
     def _post(self, path: str, payload: dict, what: str) -> None:
         # One failing channel must never stop the others — a broken webhook
         # should not also cost you the sensor update.
@@ -274,12 +286,25 @@ class HAClient:
             logger.warning(f"could not publish {what} ({path}): {exc}")
 
     def ping(self) -> bool:
+        """True when Core answers with this token. Otherwise False, with the
+        reason in `last_error` — the caller retries and reports it, so this
+        logs at debug only."""
         try:
             r = self._client.get(f"{self.base_url}/")
+            if r.status_code in (401, 403):
+                # Reachable, but the token was refused. Retrying will not fix
+                # it, and "not reachable" would send the user looking at the
+                # network. The token itself is never part of the message.
+                self.last_error = (f"Home Assistant refused the add-on's API token "
+                                   f"(HTTP {r.status_code}) — check that the add-on has "
+                                   f"'homeassistant_api: true' and restart it")
+                return False
             r.raise_for_status()
+            self.last_error = None
             return True
         except Exception as exc:
-            logger.error(f"cannot reach Home Assistant at {self.base_url}: {exc}")
+            self.last_error = f"cannot reach Home Assistant at {self.base_url}: {exc}"
+            logger.debug(self.last_error)
             return False
 
     def close(self):
