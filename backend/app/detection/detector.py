@@ -50,6 +50,12 @@ SHIMMER_FLOW_THRESHOLD   = 1.8
 SHIMMER_MIN_REGION       = 3000
 SHIMMER_CONFIDENCE_SCALE = 0.0004
 
+# The detection branches, by the `source` each tags its boxes with. "model" is
+# the trained network and always runs; the others are rules and heuristics a
+# caller may switch off when it would discard their boxes anyway (the Home
+# Assistant add-on alerts on the learned classes only by default).
+ALL_BRANCHES = frozenset({"model", "colour", "gas_colour", "flow", "pose"})
+
 
 class HazardDetector:
     """
@@ -64,7 +70,8 @@ class HazardDetector:
       5. Pose analysis → person down (indirect CO signal)
     """
 
-    def __init__(self, model_path: str | None = None, threshold: float | None = None):
+    def __init__(self, model_path: str | None = None, threshold: float | None = None,
+                 branches=None):
         # Both arguments are supplied by the edge agent. Only when a caller
         # omits them (the cloud, historically) is app.config touched at all —
         # importing it on the edge raises ModuleNotFoundError, which is exactly
@@ -102,27 +109,47 @@ class HazardDetector:
         # Serialising inference also happens to be what you want on the shared
         # hardware this runs on: two cameras cannot each take a full core.
         self._model_lock = threading.Lock()
+
+        # Which branches run. Default: all of them, as before. A branch whose
+        # boxes the caller throws away still costs its full CPU on every frame
+        # — on a Raspberry Pi that is the difference between keeping up and
+        # falling behind — so a caller can name only the branches it uses.
+        self.branches = ALL_BRANCHES if branches is None else (frozenset(branches) | {"model"})
+        # Person-down reads the network's "person" class. A fire model that has
+        # no such class can never find one, so don't pretend to look.
+        self._has_person = "person" in set(getattr(self.model, "names", {}).values())
         print(f"[detector] Loaded: {model_path}  threshold={self.threshold}")
-        print(f"[detector] Gas shimmer detection: ENABLED (optical flow)")
-        print(f"[detector] Person-down detection: ENABLED (pose analysis)")
+        print(f"[detector] Branches: {', '.join(sorted(self.branches))}"
+              + ("" if self._has_person or "pose" not in self.branches
+                 else "  (person-down unavailable: model has no 'person' class)"))
 
     # ── Public API ─────────────────────────────────────────────────────
     def detect(self, frame: np.ndarray) -> list[DetectionBox]:
+        # The network runs ONCE per frame. Fire boxes and person-down both
+        # read the same result; running it twice doubled the cost of every
+        # frame for no difference in what was found.
+        with self._model_lock:
+            results = self.model(frame, verbose=False)[0]
         boxes = []
-        boxes.extend(self._yolo_detect(frame))
-        boxes.extend(self._colour_fire_detect(frame))
-        boxes.extend(self._gas_colour_detect(frame))      # ← NEW: gas by flame colour
-        boxes.extend(self._gas_shimmer_detect(frame))
-        boxes.extend(self._person_down_detect(frame))
+        boxes.extend(self._yolo_detect(frame, results))
+        if "colour" in self.branches:
+            boxes.extend(self._colour_fire_detect(frame))
+        if "gas_colour" in self.branches:
+            boxes.extend(self._gas_colour_detect(frame))
+        if "flow" in self.branches:
+            boxes.extend(self._gas_shimmer_detect(frame))
+        if "pose" in self.branches and self._has_person:
+            boxes.extend(self._person_down_detect(frame, results))
         return self._deduplicate(boxes)
 
     def is_hazard(self, detections: list[DetectionBox]) -> list[DetectionBox]:
         return [d for d in detections if d.label.lower() in ALL_HAZARD_LABELS]
 
     # ── YOLO detection ─────────────────────────────────────────────────
-    def _yolo_detect(self, frame: np.ndarray) -> list[DetectionBox]:
-        with self._model_lock:
-            results = self.model(frame, verbose=False)[0]
+    def _yolo_detect(self, frame: np.ndarray, results=None) -> list[DetectionBox]:
+        if results is None:
+            with self._model_lock:
+                results = self.model(frame, verbose=False)[0]
         boxes   = []
         for box in results.boxes:
             conf  = float(box.conf[0])
@@ -248,6 +275,7 @@ class HazardDetector:
                     x2=float(x+bw), y2=float(y+bh),
                     label=label,
                     confidence=conf,
+                    source="gas_colour",
                 ))
 
         return boxes
@@ -302,19 +330,21 @@ class HazardDetector:
                 x2=float(x + bw), y2=float(y + bh),
                 label="gas_shimmer",
                 confidence=conf,
+                source="flow",
             ))
         return boxes
 
     # ── Person-down detection (indirect CO/gas signal) ─────────────────
-    def _person_down_detect(self, frame: np.ndarray) -> list[DetectionBox]:
+    def _person_down_detect(self, frame: np.ndarray, results=None) -> list[DetectionBox]:
         """
         Detects people lying down or collapsed — an indirect indicator
         of CO poisoning or toxic gas exposure.
         Uses YOLOv8 person detection + bounding box aspect ratio analysis.
         A standing person has height > width. A collapsed person has width > height.
         """
-        with self._model_lock:
-            results = self.model(frame, verbose=False)[0]
+        if results is None:
+            with self._model_lock:
+                results = self.model(frame, verbose=False)[0]
         boxes   = []
         for box in results.boxes:
             label = results.names[int(box.cls[0])]
@@ -335,20 +365,37 @@ class HazardDetector:
                     x1=x1, y1=y1, x2=x2, y2=y2,
                     label="person_down",
                     confidence=down_conf,
+                    source="pose",
                 ))
         return boxes
 
     # ── Remove overlapping boxes from both detectors ───────────────────
     def _deduplicate(self, boxes: list[DetectionBox]) -> list[DetectionBox]:
+        """Drop boxes that overlap a box already kept.
+
+        Between two boxes from the SAME branch the higher confidence wins.
+        Between the trained network and a rule (colour, gas colour, optical
+        flow, pose) the network's box always wins, whatever the scores.
+
+        That second rule fixes a missed alert. The colour rule scores a flame
+        by its AREA, so a large orange fire easily scores 0.8 there while the
+        network says 0.6 for the same flame. Keeping the higher score threw the
+        network's box away — and the Home Assistant add-on, which by default
+        alerts on the network's classes only, then had nothing to alert on.
+        A real fire seen by the model went unreported because a heuristic
+        agreed with it too strongly.
+        """
         if not boxes:
             return boxes
+        # Network boxes first, so a rule box can only ever be the one dropped.
+        ordered = sorted(boxes, key=lambda d: d.source != "model")
         kept = []
-        for b in boxes:
+        for b in ordered:
             overlap = False
             for k in kept:
                 if self._iou(b, k) > 0.4:
-                    # Keep the higher-confidence one
-                    if b.confidence > k.confidence:
+                    # A network box is never replaced by a rule's box.
+                    if b.confidence > k.confidence and (k.source != "model" or b.source == "model"):
                         kept.remove(k)
                     else:
                         overlap = True

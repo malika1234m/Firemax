@@ -266,9 +266,11 @@ class DetectionBox(BaseModel):
     y2: float
     label: str
     confidence: float
-    # "model" for the trained network, "colour" for the HSV colour rule. Both
-    # call a flame "fire", so without this a filter on learned classes only
-    # cannot tell them apart.
+    # Which branch produced the box: "model" for the trained network,
+    # "colour" for the HSV fire-colour rule, "gas_colour" for the gas
+    # flame-colour rule, "flow" for optical-flow shimmer, "pose" for
+    # person-down. The network and the colour rule both call a flame "fire",
+    # so without this a filter on learned classes only cannot tell them apart.
     source: str = "model"
 
 
