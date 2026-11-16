@@ -1,0 +1,142 @@
+{
+  "startup": {
+    "model_load_s": 1.29,
+    "rss_before_mb": 64.9,
+    "rss_after_load_mb": 250.4
+  },
+  "results": [
+    {
+      "clip": "take3_02.mp4",
+      "path": "ml/datasets/own_camera/20261026_201723_take3/take3_02.mp4",
+      "codec": "FMP4",
+      "width": 1920,
+      "height": 1080,
+      "fps": 22.27,
+      "declared_frames": 548,
+      "decoded_frames": 548,
+      "duration_s": 24.61,
+      "frames_with_hazard": 491,
+      "hazard_frames_by_label": {
+        "fire": 493
+      },
+      "first_hazard": {
+        "t": 0.0,
+        "frame": 0,
+        "hazards": [
+          [
+            "fire",
+            0.848
+          ]
+        ]
+      },
+      "confidence": {
+        "min": 0.5,
+        "median": 0.856,
+        "max": 0.899
+      },
+      "flicker_transitions": 42,
+      "learned_max": {
+        "fire": 0.899,
+        "gas_fire": 0.5,
+        "gas_shimmer": 0.82,
+        "lpg_fire": 0.5
+      },
+      "other_branch_labels": [],
+      "infer_ms": {
+        "mean": 790.8,
+        "p95": 1778.1
+      },
+      "processing_fps": 1.25,
+      "wall_s": 438.1,
+      "cpu_percent_avg": 204.0,
+      "rss_mb_max": 626.8,
+      "rss_mb_first_last": [
+        373.4,
+        435.7
+      ],
+      "addon_sampling": {
+        "every_n_frames": 11,
+        "frames_checked": 50,
+        "frames_with_hazard": 43,
+        "alerts": [
+          {
+            "t": 0.0,
+            "frame": 0,
+            "label": "fire",
+            "confidence": 0.848
+          }
+        ]
+      },
+      "ground_truth": {
+        "fire_frames": [
+          [
+            0,
+            99999
+          ]
+        ],
+        "tp": 491,
+        "fn": 57,
+        "fp": 0,
+        "tn": 0,
+        "frame_recall": 0.896,
+        "false_positive_frames": 0,
+        "latency_s": 0.0,
+        "longest_missed_run_s": 1.26
+      }
+    },
+    {
+      "clip": "lighter_1m_02.mp4",
+      "path": "ml/datasets/own_camera/20261026_200244_lighter_1m/lighter_1m_02.mp4",
+      "codec": "FMP4",
+      "width": 1920,
+      "height": 1080,
+      "fps": 15.0,
+      "declared_frames": 612,
+      "decoded_frames": 612,
+      "duration_s": 40.8,
+      "frames_with_hazard": 0,
+      "hazard_frames_by_label": {},
+      "first_hazard": null,
+      "confidence": null,
+      "flicker_transitions": 0,
+      "learned_max": {
+        "gas_fire": 0.5,
+        "gas_shimmer": 0.82,
+        "lpg_fire": 0.5,
+        "small_flame": 0.929
+      },
+      "other_branch_labels": [
+        "fire"
+      ],
+      "infer_ms": {
+        "mean": 490.3,
+        "p95": 1083.9
+      },
+      "processing_fps": 1.99,
+      "wall_s": 307.7,
+      "cpu_percent_avg": 386.9,
+      "rss_mb_max": 523.4,
+      "rss_mb_first_last": [
+        488.2,
+        416.6
+      ],
+      "addon_sampling": {
+        "every_n_frames": 8,
+        "frames_checked": 77,
+        "frames_with_hazard": 0,
+        "alerts": []
+      },
+      "ground_truth": {
+        "fire_frames": [],
+        "tp": 0,
+        "fn": 0,
+        "fp": 0,
+        "tn": 612,
+        "frame_recall": null,
+        "false_positive_frames": 0,
+        "latency_s": null,
+        "longest_missed_run_s": 0.0
+      }
+    }
+  ]
+}
